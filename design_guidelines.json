@@ -1,0 +1,151 @@
+{
+  "identity": {
+    "name": "Arunoday Vidyalay",
+    "persona": "E1: The Anti-AI Designer",
+    "vibe": "Sunny Future - A blend of playful energy and academic trust",
+    "archetype": "Vibrant Play (Archetype 6) + Organic Trust (Archetype 1)"
+  },
+  "typography": {
+    "headings": {
+      "fontFamily": "Fredoka, sans-serif",
+      "weights": ["600", "700"],
+      "usage": "All section titles, hero text, and card headers. Use tight tracking.",
+      "import": "@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@300..700&family=Outfit:wght@100..900&display=swap');"
+    },
+    "body": {
+      "fontFamily": "Outfit, sans-serif",
+      "weights": ["400", "500"],
+      "usage": "Paragraphs, navigation, inputs, and data tables."
+    }
+  },
+  "colors": {
+    "palette": {
+      "primary": "#FFB703",
+      "primary_foreground": "#023047",
+      "secondary": "#023047",
+      "secondary_foreground": "#FFFFFF",
+      "accent": "#219EBC",
+      "accent_foreground": "#FFFFFF",
+      "background": "#FEFAE0",
+      "foreground": "#023047",
+      "muted": "#FDF0D5",
+      "muted_foreground": "#669BBC",
+      "card": "#FFFFFF",
+      "card_foreground": "#023047",
+      "border": "#8ECAE6",
+      "input": "#FFFFFF",
+      "ring": "#FB8500"
+    },
+    "usage_rules": {
+      "gradients": "NO linear gradients for backgrounds. Use solid blocks of color or subtle noise textures.",
+      "text_contrast": "Always use #023047 (Deep Navy) for text on light backgrounds. Never use pure black.",
+      "admin_dashboard": "Use White (#FFFFFF) background with Deep Navy (#023047) sidebar for professional contrast.",
+      "student_dashboard": "Use Warm Off-White (#FEFAE0) background with colorful card accents."
+    }
+  },
+  "visual_enhancers": {
+    "radius": {
+      "default": "0.75rem",
+      "large": "1.5rem",
+      "pill": "9999px"
+    },
+    "shadows": {
+      "card": "0 4px 6px -1px rgba(2, 48, 71, 0.1), 0 2px 4px -1px rgba(2, 48, 71, 0.06)",
+      "hover": "0 10px 15px -3px rgba(2, 48, 71, 0.1), 0 4px 6px -2px rgba(2, 48, 71, 0.05)",
+      "button": "4px 4px 0px 0px #023047"
+    },
+    "textures": "Use a subtle grain overlay (opacity 0.03) on the main background to remove digital flatness.",
+    "decorations": "Use floating 3D shapes (books, pencils, globes) or abstract geometric blobs in primary colors for hero sections."
+  },
+  "layout_strategies": {
+    "public_pages": {
+      "grid_system": "Bento Grid (Mode A). Use asymmetrical spans. Never equal columns.",
+      "spacing": "Generous. Use p-12 to p-24 for section padding.",
+      "hero": "Split layout. Text on left (large, Fredoka), Image on right (cutout or framed in blob shape)."
+    },
+    "dashboards": {
+      "grid_system": "High Density Grid (Mode B).",
+      "sidebar": "Fixed width (250px), Deep Navy background, White text.",
+      "cards": "Clean white cards with colored top borders (border-t-4) to distinguish categories (e.g., Yellow for Fees, Blue for Grades)."
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#FFB703] text-[#023047] font-bold rounded-full px-8 py-3 shadow-[4px_4px_0px_0px_#023047] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all",
+      "secondary": "bg-transparent border-2 border-[#023047] text-[#023047] font-bold rounded-full px-8 py-3 hover:bg-[#023047] hover:text-white transition-colors"
+    },
+    "cards": {
+      "feature": "bg-white rounded-3xl p-8 border-2 border-[#023047] shadow-[8px_8px_0px_0px_#219EBC]",
+      "dashboard": "bg-white rounded-xl p-6 shadow-sm border border-gray-100"
+    },
+    "inputs": {
+      "style": "bg-white border-2 border-[#8ECAE6] rounded-lg px-4 py-2 focus:border-[#FB8500] focus:ring-0 outline-none transition-colors"
+    }
+  },
+  "image_urls": {
+    "hero_building": {
+      "url": "https://images.unsplash.com/photo-1755432651903-9d274c16d9a8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzV8MHwxfHNlYXJjaHwzfHxtb2Rlcm4lMjBzY2hvb2wlMjBidWlsZGluZyUyMGV4dGVyaW9yJTIwc3VubnklMjBhcmNoaXRlY3R1cmV8ZW58MHx8fHwxNzY5MjcxNTc5fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Modern School Building Sunny",
+      "usage": "Home page hero section or 'About Us' header"
+    },
+    "classroom_diverse": {
+      "url": "https://images.pexels.com/photos/5212329/pexels-photo-5212329.jpeg",
+      "alt": "Diverse Students in Classroom",
+      "usage": "Academics section or 'Aim' page"
+    },
+    "science_lab": {
+      "url": "https://images.pexels.com/photos/8471988/pexels-photo-8471988.jpeg",
+      "alt": "Students in Science Lab",
+      "usage": "Activities page or Science stream feature"
+    },
+    "library_reading": {
+      "url": "https://images.pexels.com/photos/10638214/pexels-photo-10638214.jpeg",
+      "alt": "Students Reading in Library",
+      "usage": "Facilities section"
+    },
+    "sports_energetic": {
+      "url": "https://images.pexels.com/photos/8926889/pexels-photo-8926889.jpeg",
+      "alt": "Kids Playing Sports",
+      "usage": "Activities page or 'Holistic Development' section"
+    },
+    "art_creative": {
+      "url": "https://images.pexels.com/photos/8467274/pexels-photo-8467274.jpeg",
+      "alt": "Children Painting in Art Class",
+      "usage": "Gallery or Creative Arts section"
+    }
+  },
+  "motion": {
+    "page_transition": "initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }}",
+    "hover_lift": "whileHover={{ y: -5 }}",
+    "stagger_children": "variants={{ hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } }}"
+  },
+  "instructions_to_main_agent": {
+    "1": "Install 'framer-motion' and 'lucide-react' immediately.",
+    "2": "Update 'tailwind.config.js' with the custom colors and fonts defined above.",
+    "3": "Create a 'Layout' component that handles the Public vs Dashboard structure.",
+    "4": "For the 'Home' page, use the 'hero_building' image with a heavy overlay or cutout effect.",
+    "5": "Ensure the 'Admin Dashboard' feels distinct (more rigid/data-heavy) from the 'Student Dashboard' (more colorful/gamified).",
+    "6": "Use the 'buttons.primary' style for all main CTAs (Login, Pay Fees).",
+    "7": "Mock the 'Bank of Baroda' payment flow with a simple modal that simulates success after 2 seconds."
+  },
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy",
+    "Use glass-morphism effects with backdrop filters (12-24px blur)",
+    "You MUST NOT apply universal transition. Eg: transition: all. This results in breaking transforms. Always add transitions for specific interactive elements like button, input excluding transforms",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file. This disrupts the human natural reading flow of text",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯📚🎭🎬🎪🎉🎊🎁🎀🎂🍰🎈🎨🎰💰💵💳🏦💎🪙💸🤑📊📈📉💹🔢🏆🥇 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, parallax effects, and entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary.",
+    "Main agent relies on these image URLs. Missing categories (especially sponsor logos) = main agent will use placeholder text which is FORBIDDEN",
+    "Prioritize using pre-existing components from src/components/ui when applicable",
+    "Create new components that match the style and conventions of existing components when needed",
+    "Examine existing components to understand the project's component patterns before creating new ones",
+    "Components MUST use named exports (export const ComponentName = ...)",
+    "Pages MUST use default exports (export default function PageName() {...})",
+    "Use sonner for toasts. Sonner component are located in /app/src/components/ui/sonner.tsx"
+  ]
+}
