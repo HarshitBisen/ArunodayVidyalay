@@ -18,8 +18,8 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const response = await api.post('/auth/login', formData);
-      const { token, user_type, user } = response.data;
-      authLogin(token, user_type, user);
+      const { user_type, user } = response.data;
+      authLogin(null, user_type, user);
       toast.success(`Welcome ${user.name}!`);
       
       if (user_type === 'admin') {
