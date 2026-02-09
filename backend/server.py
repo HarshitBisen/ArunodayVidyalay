@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Response,Request
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -101,7 +102,6 @@ class LoginRequest(BaseModel):
     password: str
 
 class LoginResponse(BaseModel):
-    token: str
     user_type: str
     user: dict
 
@@ -157,8 +157,10 @@ def verify_jwt_token(token: str) -> dict:
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
+async def get_current_user(request: Request):
+    token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not logged in")
     return verify_jwt_token(token)
 
 async def get_admin_user(current_user: dict = Depends(get_current_user)):
@@ -184,16 +186,25 @@ async def startup_event():
 
 # Routes
 @api_router.post("/auth/login", response_model=LoginResponse)
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, response: Response):
     # Check if admin
     admin = await db.admins.find_one({"email": request.email}, {"_id": 0})
     if admin and verify_password(request.password, admin['password_hash']):
         token = create_jwt_token(admin['id'], 'admin')
+
+        response.set_cookie(
+            key="access_token",
+            value=token,
+            httponly=True,
+            secure=False,   # works in HTTPS only
+            samesite="lax"
+        )
+
         return LoginResponse(
-            token=token,
-            user_type='admin',
+            user_type="admin",
             user={'id': admin['id'], 'email': admin['email'], 'name': admin['name']}
         )
+
     
     # Check if student
     student = await db.students.find_one({"email": request.email}, {"_id": 0})
@@ -378,13 +389,15 @@ async def contact_form(form: ContactForm):
 # Include the router in the main app
 app.include_router(api_router)
 
+origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=[o.strip() for o in origins],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # Configure logging
 logging.basicConfig(
