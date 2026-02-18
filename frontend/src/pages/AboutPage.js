@@ -21,7 +21,7 @@ export default function AboutPage() {
               About <span className="text-sunny-yellow">Us</span>
             </h1>
             <p className="text-xl font-outfit text-gray-600 max-w-3xl mx-auto">
-              Building a brighter future through excellence in education since our establishment
+              Arunoday Vidyalay is established by the Mangalam Welfare Trust with the motto of providing holistic education. Over the years, it has built a stellar reputation for itself, thanks to its futuristic vision, modern and traditional teaching methods, and state-of-the-art infrastructure. Located on a sprawling campus of over seven thousand feet near Kuchera in Ayodhya. The school offers child-centric education, powered by a team of dedicated and competent faculty members. The entire establishment works with the sole objective of providing wholesome education to every child, fostering their physical, moral, intellectual and spiritual growth. We strive to create an inspiring and challenging environment that encourages our students to adopt, adapt and excel.
             </p>
           </motion.div>
         </div>

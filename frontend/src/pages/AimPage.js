@@ -21,7 +21,7 @@ export default function AimPage() {
               Our <span className="text-sunny-yellow">Aim</span>
             </h1>
             <p className="text-xl font-outfit text-gray-600 max-w-3xl mx-auto">
-              To empower students with knowledge, skills, and values that prepare them for success in life
+              To cultivate a nurturing and learning environment where every child discovers their unique potential, foster a lifelong love for learning, and empower them to become compassionate and responsible global citizens. To achieve this vision, our mission is to provide a stimulating and inclusive curriculum that caters to diverse learning styles, encouraging curiosity, critical thinking, and creativity. We are committed to nurturing strong character development through value-based education, promoting respect, empathy, and integrity. By a building a cooperative partnership between students, teachers, parents and the community, we create a supportive network that empowers each child to thrive and succeed.
             </p>
           </motion.div>
         </div>
