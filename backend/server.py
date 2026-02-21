@@ -2,6 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -389,7 +390,7 @@ async def contact_form(form: ContactForm):
 # Include the router in the main app
 app.include_router(api_router)
 
-origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
+origins = os.environ.get("CORS_ORIGINS", "https://arunoday-vidyalay.vercel.app").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
