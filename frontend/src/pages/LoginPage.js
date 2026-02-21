@@ -137,10 +137,8 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-8 pt-6 border-t border-gray-200">
-            <p className="font-outfit text-gray-600 text-sm mb-4">Demo Credentials:</p>
             <div className="space-y-2 text-sm font-outfit">
               <p className="text-gray-600">
-                <span className="font-semibold">Admin:</span> admin@arunodayvidyalay.com / admin123
               </p>
               <p className="text-gray-600 text-xs mt-2">
                 Students can login with credentials provided by admin
