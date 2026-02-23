@@ -192,13 +192,16 @@ async def login(request: LoginRequest, response: Response):
     admin = await db.admins.find_one({"email": request.email}, {"_id": 0})
     if admin and verify_password(request.password, admin['password_hash']):
         token = create_jwt_token(admin['id'], 'admin')
+        COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
+        COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax")
 
         response.set_cookie(
             key="access_token",
             value=token,
             httponly=True,
-            secure=False,   # works in HTTPS only
-            samesite="lax"
+            secure=COOKIE_SECURE,  # works in HTTPS only
+            samesite=COOKIE_SAMESITE
+
         )
 
         return LoginResponse(
@@ -390,7 +393,7 @@ async def contact_form(form: ContactForm):
 # Include the router in the main app
 app.include_router(api_router)
 
-origins = os.environ.get("CORS_ORIGINS", "https://arunoday-vidyalay.vercel.app").split(",")
+origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
