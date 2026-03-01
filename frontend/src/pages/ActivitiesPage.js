@@ -119,8 +119,8 @@ export default function ActivitiesPage() {
                 month: 'December',
               },
               {
-                title: 'Science Fair',
-                description: 'Students present innovative projects, experiments, and scientific discoveries.',
+                title: 'TLM Exhibition',
+                description: 'Teaching Learning Mechanism Exhibition meant for interactive learning for students.',
                 month: 'February',
               },
               {

@@ -67,12 +67,11 @@ export default function HomePage() {
       {/* Stats Section - Bento Grid */}
       <section className="py-16 md:py-20" data-testid="stats-section">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
             {[
-              { icon: Users, value: '500+', label: 'Students', color: 'bg-sunny-blue' },
-              { icon: Award, value: '25+', label: 'Expert Teachers', color: 'bg-sunny-yellow' },
-              { icon: BookOpen, value: '50+', label: 'Courses', color: 'bg-sunny-orange' },
-              { icon: Trophy, value: '100+', label: 'Awards Won', color: 'bg-sunny-blue' },
+              { icon: Users, value: '190+', label: 'Students', color: 'bg-sunny-blue' },
+              { icon: Award, value: '10+', label: 'Expert Teachers', color: 'bg-sunny-yellow' },
+              { icon: BookOpen, value: '9', label: 'Classes', color: 'bg-sunny-orange' },
             ].map((stat, index) => (
               <motion.div
                 key={index}
@@ -86,8 +85,12 @@ export default function HomePage() {
                 <div className={`w-16 h-16 ${stat.color} rounded-full flex items-center justify-center mb-4`}>
                   <stat.icon className="w-8 h-8 text-white" />
                 </div>
-                <div className="text-4xl font-fredoka font-bold text-sunny-navy mb-2">{stat.value}</div>
-                <div className="text-lg font-outfit text-gray-600">{stat.label}</div>
+                <div className="text-4xl font-fredoka font-bold text-sunny-navy mb-2">
+                  {stat.value}
+                </div>
+                <div className="text-lg font-outfit text-gray-600">
+                  {stat.label}
+                </div>
               </motion.div>
             ))}
           </div>
