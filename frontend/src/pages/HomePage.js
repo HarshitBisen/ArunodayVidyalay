@@ -54,7 +54,7 @@ export default function HomePage() {
             >
               <div className="rounded-3xl overflow-hidden border-4 border-sunny-navy feature-card-shadow">
                 <img
-                  src="https://images.unsplash.com/photo-1755432651903-9d274c16d9a8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzV8MHwxfHNlYXJjaHwzfHxtb2Rlcm4lMjBzY2hvb2wlMjBidWlsZGluZyUyMGV4dGVyaW9yJTIwc3VubnklMjBhcmNoaXRlY3R1cmV8ZW58MHx8fHwxNzY5MjcxNTc5fDA&ixlib=rb-4.1.0&q=85"
+                  src="/school_picture.jpeg"
                   alt="Arunoday Vidyalay Campus"
                   className="w-full h-96 object-cover"
                 />

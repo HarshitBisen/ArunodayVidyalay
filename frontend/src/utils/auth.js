@@ -1,5 +1,7 @@
 export const isAuthenticated = () => {
-  return !!localStorage.getItem('token');
+  const userType = localStorage.getItem('userType');
+  const user = localStorage.getItem('user');
+  return Boolean(userType && user);
 };
 
 export const getUserType = () => {
@@ -12,7 +14,11 @@ export const getUser = () => {
 };
 
 export const login = (token, userType, user) => {
-  localStorage.setItem('token', token);
+  if (token) {
+    localStorage.setItem('token', token);
+  } else {
+    localStorage.removeItem('token');
+  }
   localStorage.setItem('userType', userType);
   localStorage.setItem('user', JSON.stringify(user));
 };

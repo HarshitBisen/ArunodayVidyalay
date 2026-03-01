@@ -3,6 +3,7 @@ import { Routes, Route, Link, useNavigate } from 'react-router-dom';
 import { User, Lock, CreditCard, LogOut, GraduationCap, Home } from 'lucide-react';
 import { toast } from 'sonner';
 import { getUser, logout } from '@/utils/auth';
+import api from '@/utils/api';
 import StudentProfile from '@/components/student/StudentProfile';
 import ChangePassword from '@/components/student/ChangePassword';
 import FeePayment from '@/components/student/FeePayment';
@@ -17,7 +18,12 @@ export default function StudentDashboard() {
     setUser(userData);
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (_error) {
+      // Keep local logout behavior even if backend logout fails.
+    }
     logout();
     toast.success('Logged out successfully');
     navigate('/login');
