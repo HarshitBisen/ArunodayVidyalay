@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Users, LogOut, GraduationCap, UserPlus, CreditCard, Home } from 'lucide-react';
+import { Users, LogOut, GraduationCap, CreditCard, Home } from 'lucide-react';
 import { toast } from 'sonner';
 import { getUser, logout } from '@/utils/auth';
+import api from '@/utils/api';
 import StudentsManagement from '@/components/admin/StudentsManagement';
 import PaymentsView from '@/components/admin/PaymentsView';
 import AdminOverview from '@/components/admin/AdminOverview';
@@ -16,7 +17,12 @@ export default function AdminDashboard() {
     setUser(userData);
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (_error) {
+      // Keep local logout behavior even if backend logout fails.
+    }
     logout();
     toast.success('Logged out successfully');
     navigate('/login');

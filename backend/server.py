@@ -1,7 +1,6 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Response, Request
+from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
@@ -13,7 +12,6 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Response,Request
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -103,6 +101,7 @@ class LoginRequest(BaseModel):
     password: str
 
 class LoginResponse(BaseModel):
+    token: Optional[str] = None
     user_type: str
     user: dict
 
@@ -169,6 +168,17 @@ async def get_admin_user(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
+def set_auth_cookie(response: Response, token: str) -> None:
+    cookie_secure = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
+    cookie_samesite = os.environ.get("COOKIE_SAMESITE", "lax")
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=cookie_secure,
+        samesite=cookie_samesite,
+    )
+
 # Initialize admin user
 @app.on_event("startup")
 async def startup_event():
@@ -192,17 +202,7 @@ async def login(request: LoginRequest, response: Response):
     admin = await db.admins.find_one({"email": request.email}, {"_id": 0})
     if admin and verify_password(request.password, admin['password_hash']):
         token = create_jwt_token(admin['id'], 'admin')
-        COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
-        COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax")
-
-        response.set_cookie(
-            key="access_token",
-            value=token,
-            httponly=True,
-            secure=COOKIE_SECURE,  # works in HTTPS only
-            samesite=COOKIE_SAMESITE
-
-        )
+        set_auth_cookie(response, token)
 
         return LoginResponse(
             user_type="admin",
@@ -214,8 +214,8 @@ async def login(request: LoginRequest, response: Response):
     student = await db.students.find_one({"email": request.email}, {"_id": 0})
     if student and verify_password(request.password, student['password_hash']):
         token = create_jwt_token(student['id'], 'student')
+        set_auth_cookie(response, token)
         return LoginResponse(
-            token=token,
             user_type='student',
             user={
                 'id': student['id'],
@@ -227,6 +227,17 @@ async def login(request: LoginRequest, response: Response):
         )
     
     raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+@api_router.post("/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie(
+        key="access_token",
+        httponly=True,
+        secure=os.environ.get("COOKIE_SECURE", "false").lower() == "true",
+        samesite=os.environ.get("COOKIE_SAMESITE", "lax"),
+    )
+    return {"message": "Logged out successfully"}
 
 # Admin routes
 @api_router.get("/admin/students", response_model=List[StudentResponse])

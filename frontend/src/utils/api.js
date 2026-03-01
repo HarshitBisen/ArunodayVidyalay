@@ -8,20 +8,7 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// Add token to requests
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('userType');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
-    }
-    return Promise.reject(error);
-  }
-);
-
-// Handle auth errors
+// Handle auth errors in one place.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
