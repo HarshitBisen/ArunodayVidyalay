@@ -144,9 +144,9 @@ export default function ContactPage() {
                 </div>
                 <h3 className="text-xl font-fredoka font-bold text-sunny-navy mb-2">Visit Us</h3>
                 <p className="font-outfit text-gray-600">
-                  123 Education Street,<br />
-                  Learning City, State - 110001,<br />
-                  India
+                  29/1902 Saraynamu <br />
+                  Shekhanpur Milkipur <br />
+                  Ayodhya U.P - 224158
                 </p>
               </div>
 
@@ -156,8 +156,8 @@ export default function ContactPage() {
                 </div>
                 <h3 className="text-xl font-fredoka font-bold text-sunny-navy mb-2">Call Us</h3>
                 <p className="font-outfit text-gray-600">
-                  +91 9876543210<br />
-                  +91 9876543211
+                  7518466635<br />
+                  8765442626
                 </p>
               </div>
 
@@ -167,8 +167,7 @@ export default function ContactPage() {
                 </div>
                 <h3 className="text-xl font-fredoka font-bold text-sunny-navy mb-2">Email Us</h3>
                 <p className="font-outfit text-gray-600">
-                  info@arunodayvidyalay.com<br />
-                  admission@arunodayvidyalay.com
+                  arunodayvidyalay2022@gmail.com<br />
                 </p>
               </div>
 
@@ -178,8 +177,7 @@ export default function ContactPage() {
                 </div>
                 <h3 className="text-xl font-fredoka font-bold text-sunny-navy mb-2">Office Hours</h3>
                 <p className="font-outfit text-gray-600">
-                  Monday - Friday: 8:00 AM - 4:00 PM<br />
-                  Saturday: 8:00 AM - 12:00 PM<br />
+                  Monday - Saturday: 9:00 AM - 4:00 PM<br />
                   Sunday: Closed
                 </p>
               </div>

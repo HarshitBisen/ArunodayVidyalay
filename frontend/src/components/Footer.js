@@ -48,15 +48,15 @@ export default function Footer() {
             <div className="space-y-3 font-outfit text-sm">
               <div className="flex items-start space-x-2">
                 <MapPin size={18} className="text-sunny-yellow mt-1 flex-shrink-0" />
-                <span>123 Education Street, Learning City, State - 110001</span>
+                <span>29/1902 Saraynamu Shekhanpur Milkipur Ayodhya U.P - 224158</span>
               </div>
               <div className="flex items-center space-x-2">
                 <Phone size={18} className="text-sunny-yellow flex-shrink-0" />
-                <span>+91 9876543210</span>
+                <span>7518466635, 8765442626</span>
               </div>
               <div className="flex items-center space-x-2">
                 <Mail size={18} className="text-sunny-yellow flex-shrink-0" />
-                <span>info@arunodayvidyalay.com</span>
+                <span>arunodayvidyalay2022@gmail.com</span>
               </div>
             </div>
           </div>
