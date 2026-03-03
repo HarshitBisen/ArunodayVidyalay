@@ -161,6 +161,7 @@ export default function StudentsManagement() {
                 <div>
                   <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Roll Number *</label>
                   <Input
+                    className="bg-white"
                     value={formData.roll_number}
                     onChange={(e) => setFormData({ ...formData, roll_number: e.target.value })}
                     required
@@ -170,6 +171,7 @@ export default function StudentsManagement() {
                 <div>
                   <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Name *</label>
                   <Input
+                    className="bg-white"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
@@ -177,18 +179,19 @@ export default function StudentsManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Email *</label>
+                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Email </label>
                   <Input
+                    className="bg-white"
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    required
                     data-testid="add-email"
                   />
                 </div>
                 <div>
                   <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Password *</label>
                   <Input
+                    className="bg-white"
                     type="password"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -199,6 +202,7 @@ export default function StudentsManagement() {
                 <div>
                   <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Class *</label>
                   <Input
+                    className="bg-white"
                     value={formData.class_name}
                     onChange={(e) => setFormData({ ...formData, class_name: e.target.value })}
                     required
@@ -206,26 +210,37 @@ export default function StudentsManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Section *</label>
+                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Section</label>
                   <Input
+                    className="bg-white"
                     value={formData.section}
                     onChange={(e) => setFormData({ ...formData, section: e.target.value })}
-                    required
                     data-testid="add-section"
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Phone *</label>
+                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Phone</label>
                   <Input
+                    className="bg-white"
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    required
                     data-testid="add-phone"
+                  />
+                </div>
+                <div>
+                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Permanent Address *</label>
+                  <Input
+                    className="bg-white"
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    required
+                    data-testid="add-address"
                   />
                 </div>
                 <div>
                   <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Name *</label>
                   <Input
+                    className="bg-white"
                     value={formData.parent_name}
                     onChange={(e) => setFormData({ ...formData, parent_name: e.target.value })}
                     required
@@ -235,6 +250,7 @@ export default function StudentsManagement() {
                 <div>
                   <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Phone *</label>
                   <Input
+                    className="bg-white"
                     value={formData.parent_phone}
                     onChange={(e) => setFormData({ ...formData, parent_phone: e.target.value })}
                     required
@@ -242,25 +258,64 @@ export default function StudentsManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Fee Amount *</label>
-                  <Input
-                    type="number"
-                    value={formData.fee_amount}
-                    onChange={(e) => setFormData({ ...formData, fee_amount: e.target.value })}
+                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Bus Service Opted *</label>
+                  <select
+                    value={formData.bus_opted}
+                    onChange={(e) => {
+                      const value = e.target.value;
+
+                      setFormData({
+                        ...formData,
+                        bus_opted: value,
+                        pickup_location: value === "yes" ? formData.pickup_location : "",
+                        distance_school: value === "yes" ? formData.distance_school : ""
+                      });
+                    }}
                     required
-                    data-testid="add-fee-amount"
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm">
+                    <option value="">Select</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">New Student *</label>
+                  <select
+                    value={formData.new_student}
+                    onChange={(e) => setFormData({ ...formData, new_student: e.target.value })}
+                    required
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm">
+                    <option value="">Select</option>
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Pickup Location</label>
+                  <Input
+                    className="bg-white"
+                    value={formData.pickup_location}
+                    onChange={(e) =>
+                      setFormData({ ...formData, pickup_location: e.target.value })
+                    }
+                    disabled={formData.bus_opted !== "yes"}
+                  />
+                </div>
+                <div>
+                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Distance from School</label>
+                  <Input
+                    className="bg-white"
+                    type="number"
+                    value={formData.distance_school}
+                    onChange={(e) =>
+                      setFormData({ ...formData, distance_school: e.target.value })
+                    }
+                    disabled={formData.bus_opted !== "yes"}
+                    required={formData.bus_opted === "yes"}
                   />
                 </div>
               </div>
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Address *</label>
-                <Input
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  required
-                  data-testid="add-address"
-                />
-              </div>
+              
               <Button
                 type="submit"
                 className="w-full bg-sunny-yellow text-sunny-navy font-bold rounded-full py-2 hover:bg-sunny-yellow"
