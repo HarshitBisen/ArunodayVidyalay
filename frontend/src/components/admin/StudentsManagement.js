@@ -14,6 +14,7 @@ export default function StudentsManagement() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [formData, setFormData] = useState({
+    enrollment_number:'',
     roll_number: '',
     name: '',
     email: '',
@@ -21,10 +22,13 @@ export default function StudentsManagement() {
     class_name: '',
     section: '',
     phone: '',
+    address: '',
     parent_name: '',
     parent_phone: '',
-    address: '',
-    fee_amount: '',
+    bus_opted:'',
+    pickup_location:'',
+    distance_school:'',
+    new_student: ''
   });
   const [passwordData, setPasswordData] = useState({ new_password: '' });
 
@@ -99,15 +103,16 @@ export default function StudentsManagement() {
     setSelectedStudent(student);
     setFormData({
       roll_number: student.roll_number,
-      name: student.name,
       email: student.email,
       class_name: student.class_name,
       section: student.section,
       phone: student.phone,
+      address: student.address,
       parent_name: student.parent_name,
       parent_phone: student.parent_phone,
-      address: student.address,
-      fee_amount: student.fee_amount,
+      bus_opted: student.bus_opted,
+      pickup_location: student.pickup_location,
+      distance_school: student.distance_school,
     });
     setShowEditModal(true);
   };
@@ -119,6 +124,7 @@ export default function StudentsManagement() {
 
   const resetForm = () => {
     setFormData({
+      enrollment_number:'',
       roll_number: '',
       name: '',
       email: '',
@@ -126,12 +132,20 @@ export default function StudentsManagement() {
       class_name: '',
       section: '',
       phone: '',
+      address: '',
       parent_name: '',
       parent_phone: '',
-      address: '',
-      fee_amount: '',
+      bus_opted:'',
+      pickup_location:'',
+      distance_school:'',
+      new_student: ''
     });
     setSelectedStudent(null);
+  };
+
+  const openAddModal = () => {
+    resetForm();       // clear old edit data
+    setShowAddModal(true);
   };
 
   if (loading) {
@@ -143,30 +157,44 @@ export default function StudentsManagement() {
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-4xl font-fredoka font-bold text-sunny-navy">Students Management</h1>
         <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-          <DialogTrigger asChild>
-            <Button
-              className="bg-sunny-yellow text-sunny-navy font-bold rounded-full px-6 py-2 neo-brutal-shadow hover:bg-sunny-yellow"
-              data-testid="add-student-button"
-            >
-              <Plus size={18} className="mr-2" />
-              Add Student
-            </Button>
-          </DialogTrigger>
+        <Button
+          onClick={openAddModal}
+          className="bg-sunny-yellow text-sunny-navy font-bold rounded-full px-6 py-2 neo-brutal-shadow hover:bg-sunny-yellow"
+          data-testid="add-student-button"
+        >
+          <Plus size={18} className="mr-2" />
+          Add Student
+        </Button>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="add-student-modal">
             <DialogHeader>
               <DialogTitle className="text-2xl font-fredoka font-bold text-sunny-navy">Add New Student</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleAdd} className="space-y-4 mt-4">
               <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Roll Number *</label>
-                  <Input
-                    className="bg-white"
-                    value={formData.roll_number}
-                    onChange={(e) => setFormData({ ...formData, roll_number: e.target.value })}
-                    required
-                    data-testid="add-roll-number"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  
+                  <div>
+                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Enrollment Number *</label>
+                    <Input
+                      className="bg-white w-full"
+                      value={formData.enrollment_number}
+                      onChange={(e) =>
+                        setFormData({ ...formData, enrollment_number: e.target.value })
+                      }
+                      required
+                      data-testid="add-enrollment-number"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Class Roll Number</label>
+                    <Input
+                      className="bg-white w-full"
+                      value={formData.roll_number}
+                      onChange={(e) => setFormData({ ...formData, roll_number: e.target.value })}
+                      data-testid="add-roll-number"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Name *</label>
@@ -403,21 +431,14 @@ export default function StudentsManagement() {
           <form onSubmit={handleEdit} className="space-y-4 mt-4">
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Roll Number</label>
+                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Class Roll Number</label>
                 <Input
                   value={formData.roll_number}
                   onChange={(e) => setFormData({ ...formData, roll_number: e.target.value })}
                   data-testid="edit-roll-number"
                 />
               </div>
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Name</label>
-                <Input
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  data-testid="edit-name"
-                />
-              </div>
+              
               <div>
                 <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Email</label>
                 <Input
@@ -452,6 +473,14 @@ export default function StudentsManagement() {
                 />
               </div>
               <div>
+                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Permanent Address</label>
+                <Input
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  data-testid="edit-address"
+                />
+              </div>
+              <div>
                 <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Name</label>
                 <Input
                   value={formData.parent_name}
@@ -468,23 +497,52 @@ export default function StudentsManagement() {
                 />
               </div>
               <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Fee Amount</label>
+                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Bus Service Opted *</label>
+                <select
+                  value={formData.bus_opted}
+                  onChange={(e) => {
+                    const value = e.target.value;
+
+                    setFormData({
+                      ...formData,
+                      bus_opted: value,
+                      pickup_location: value === "yes" ? formData.pickup_location : "",
+                      distance_school: value === "yes" ? formData.distance_school : ""
+                    });
+                  }}
+                  required
+                  className="w-full border border-gray-300 rounded-md p-2 text-sm">
+                  <option value="">Select</option>
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Pickup Location</label>
                 <Input
-                  type="number"
-                  value={formData.fee_amount}
-                  onChange={(e) => setFormData({ ...formData, fee_amount: e.target.value })}
-                  data-testid="edit-fee-amount"
+                  className="bg-white"
+                  value={formData.pickup_location}
+                  onChange={(e) =>
+                    setFormData({ ...formData, pickup_location: e.target.value })
+                  }
+                  disabled={formData.bus_opted !== "yes"}
                 />
               </div>
+              <div>
+                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Distance from School</label>
+                  <Input
+                    className="bg-white"
+                    type="number"
+                    value={formData.distance_school}
+                    onChange={(e) =>
+                      setFormData({ ...formData, distance_school: e.target.value })
+                    }
+                    disabled={formData.bus_opted !== "yes"}
+                    required={formData.bus_opted === "yes"}
+                  />
+                </div>
             </div>
-            <div>
-              <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Address</label>
-              <Input
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                data-testid="edit-address"
-              />
-            </div>
+            
             <Button
               type="submit"
               className="w-full bg-sunny-yellow text-sunny-navy font-bold rounded-full py-2 hover:bg-sunny-yellow"
