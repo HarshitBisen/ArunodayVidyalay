@@ -25,6 +25,9 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ.get('JWT_SECRET', 'arunoday-vidyalay-secret-key-2025')
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_HOURS = 24
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+ADMIN_NAME = os.environ.get("ADMIN_NAME", "Admin")
 
 # Security
 security = HTTPBearer()
@@ -182,18 +185,21 @@ def set_auth_cookie(response: Response, token: str) -> None:
 # Initialize admin user
 @app.on_event("startup")
 async def startup_event():
-    admin_email = "admin@arunodayvidyalay.com"
-    existing_admin = await db.admins.find_one({"email": admin_email}, {"_id": 0})
+    if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+        logger.warning("ADMIN_EMAIL or ADMIN_PASSWORD is missing; skipping bootstrap admin creation.")
+        return
+
+    existing_admin = await db.admins.find_one({"email": ADMIN_EMAIL}, {"_id": 0})
     if not existing_admin:
         admin_data = {
             "id": str(uuid.uuid4()),
-            "email": admin_email,
-            "password_hash": hash_password("admin123"),
-            "name": "Admin",
+            "email": ADMIN_EMAIL,
+            "password_hash": hash_password(ADMIN_PASSWORD),
+            "name": ADMIN_NAME,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.admins.insert_one(admin_data)
-        logger.info(f"Admin user created: {admin_email} / admin123")
+        logger.info("Bootstrap admin user created from environment configuration.")
 
 # Routes
 @api_router.post("/auth/login", response_model=LoginResponse)
