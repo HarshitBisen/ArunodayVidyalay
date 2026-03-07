@@ -7,6 +7,7 @@ import api from '@/utils/api';
 import StudentsManagement from '@/components/admin/StudentsManagement';
 import PaymentsView from '@/components/admin/PaymentsView';
 import AdminOverview from '@/components/admin/AdminOverview';
+import FeesManagement from '@/components/admin/FeesManagement';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -73,6 +74,14 @@ export default function AdminDashboard() {
               <CreditCard size={20} />
               <span className="font-outfit">Payments</span>
             </Link>
+            <Link
+              to="/admin/fees"
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-10 transition-colors"
+              data-testid="admin-nav-payments"
+            >
+              <CreditCard size={20} />
+              <span className="font-outfit">Fees</span>
+            </Link>
           </nav>
 
           <button
@@ -92,6 +101,7 @@ export default function AdminDashboard() {
           <Route index element={<AdminOverview />} />
           <Route path="students" element={<StudentsManagement />} />
           <Route path="payments" element={<PaymentsView />} />
+          <Route path="fees" element={<FeesManagement />} />
         </Routes>
       </div>
     </div>
