@@ -49,14 +49,44 @@ export default function StudentsManagement() {
 
   const handleAdd = async (e) => {
     e.preventDefault();
+  
+    const payload = { ...formData };
+  
+    // Convert empty email to null
+    if (!payload.email || payload.email.trim() === '') {
+      payload.email = null;   // or delete payload.email;
+    }
+  
+    // Convert empty fee_amount if needed
+    if (!payload.fee_amount) {
+      payload.fee_amount = 0;
+    }
+
+    if (!payload.distance_school || payload.distance_school === "") {
+      payload.distance_school = null;   // or 0 depending on your logic
+    } else {
+      payload.distance_school = parseFloat(payload.distance_school);
+    }
+  
     try {
-      await api.post('/admin/students', formData);
+      await api.post('/admin/students', payload);
+  
       toast.success('Student added successfully');
       setShowAddModal(false);
       resetForm();
       fetchStudents();
+  
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add student');
+      const detail = error.response?.data?.detail;
+  
+      if (Array.isArray(detail)) {
+        const message = detail.map(err => err.msg).join(", ");
+        toast.error(message);
+      } else if (typeof detail === "string") {
+        toast.error(detail);
+      } else {
+        toast.error("Failed to add student");
+      }
     }
   };
 
@@ -228,14 +258,31 @@ export default function StudentsManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Class *</label>
-                  <Input
-                    className="bg-white"
+                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+                    Class *
+                  </label>
+
+                  <select
+                    className="bg-white w-full border rounded-md px-3 py-2 font-outfit"
                     value={formData.class_name}
-                    onChange={(e) => setFormData({ ...formData, class_name: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, class_name: e.target.value })
+                    }
                     required
                     data-testid="add-class"
-                  />
+                  >
+                    <option value="">Select Class</option>
+                    <option value="Nursery">Nursery</option>
+                    <option value="LKG">LKG</option>
+                    <option value="UKG">UKG</option>
+                    <option value="1">1st</option>
+                    <option value="2">2nd</option>
+                    <option value="3">3rd</option>
+                    <option value="4">4th</option>
+                    <option value="5">5th</option>
+                    <option value="6">6th</option>
+                    <option value="7">7th</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Section</label>
@@ -366,7 +413,6 @@ export default function StudentsManagement() {
                 <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Name</th>
                 <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Email</th>
                 <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Class</th>
-                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Fee Status</th>
                 <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Actions</th>
               </tr>
             </thead>
@@ -379,17 +425,7 @@ export default function StudentsManagement() {
                   <td className="font-outfit text-gray-900 py-3 px-4">
                     {student.class_name}-{student.section}
                   </td>
-                  <td className="py-3 px-4">
-                    <span
-                      className={`px-3 py-1 rounded-full text-sm font-outfit ${
-                        student.fee_status === 'paid'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-red-100 text-red-700'
-                      }`}
-                    >
-                      {student.fee_status}
-                    </span>
-                  </td>
+                  
                   <td className="py-3 px-4">
                     <div className="flex space-x-2">
                       <button
@@ -433,6 +469,7 @@ export default function StudentsManagement() {
               <div>
                 <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Class Roll Number</label>
                 <Input
+                  className="bg-white"
                   value={formData.roll_number}
                   onChange={(e) => setFormData({ ...formData, roll_number: e.target.value })}
                   data-testid="edit-roll-number"
@@ -442,6 +479,7 @@ export default function StudentsManagement() {
               <div>
                 <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Email</label>
                 <Input
+                  className="bg-white"
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -449,16 +487,35 @@ export default function StudentsManagement() {
                 />
               </div>
               <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Class</label>
-                <Input
+                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+                  Class
+                </label>
+
+                <select
+                  className="bg-white w-full border rounded-md px-3 py-2 font-outfit"
                   value={formData.class_name}
-                  onChange={(e) => setFormData({ ...formData, class_name: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, class_name: e.target.value })
+                  }
                   data-testid="edit-class"
-                />
+                >
+                  <option value="">Select Class</option>
+                  <option value="Nursery">Nursery</option>
+                  <option value="LKG">LKG</option>
+                  <option value="UKG">UKG</option>
+                  <option value="1">1st</option>
+                  <option value="2">2nd</option>
+                  <option value="3">3rd</option>
+                  <option value="4">4th</option>
+                  <option value="5">5th</option>
+                  <option value="6">6th</option>
+                  <option value="7">7th</option>
+                </select>
               </div>
               <div>
                 <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Section</label>
                 <Input
+                  className="bg-white"
                   value={formData.section}
                   onChange={(e) => setFormData({ ...formData, section: e.target.value })}
                   data-testid="edit-section"
@@ -467,6 +524,7 @@ export default function StudentsManagement() {
               <div>
                 <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Phone</label>
                 <Input
+                  className="bg-white"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                   data-testid="edit-phone"
@@ -475,6 +533,7 @@ export default function StudentsManagement() {
               <div>
                 <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Permanent Address</label>
                 <Input
+                  className="bg-white"
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   data-testid="edit-address"
@@ -483,6 +542,7 @@ export default function StudentsManagement() {
               <div>
                 <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Name</label>
                 <Input
+                  className="bg-white"
                   value={formData.parent_name}
                   onChange={(e) => setFormData({ ...formData, parent_name: e.target.value })}
                   data-testid="edit-parent-name"
@@ -491,6 +551,7 @@ export default function StudentsManagement() {
               <div>
                 <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Phone</label>
                 <Input
+                  className="bg-white"
                   value={formData.parent_phone}
                   onChange={(e) => setFormData({ ...formData, parent_phone: e.target.value })}
                   data-testid="edit-parent-phone"
