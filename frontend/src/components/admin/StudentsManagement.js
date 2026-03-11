@@ -53,13 +53,19 @@ export default function StudentsManagement() {
     const payload = { ...formData };
   
     // Convert empty email to null
-    if (!payload.email || payload.email.trim() === "") {
+    if (!payload.email || payload.email.trim() === '') {
       payload.email = null;   // or delete payload.email;
     }
   
     // Convert empty fee_amount if needed
     if (!payload.fee_amount) {
       payload.fee_amount = 0;
+    }
+
+    if (!payload.distance_school || payload.distance_school === "") {
+      payload.distance_school = null;   // or 0 depending on your logic
+    } else {
+      payload.distance_school = parseFloat(payload.distance_school);
     }
   
     try {

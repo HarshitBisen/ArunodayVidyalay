@@ -56,7 +56,8 @@ class Student(BaseModel):
     bus_opted: str  # yes, no
     new_student: str
     pickup_location: str 
-    distance_school: float
+    distance_school: Optional[float] = None
+    fee_cycle: str = 'q'
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -75,7 +76,7 @@ class StudentCreate(BaseModel):
     bus_opted: str  # yes, no
     new_student: str
     pickup_location: str 
-    distance_school: float
+    distance_school: Optional[float] = None
 
 class StudentUpdate(BaseModel):
     roll_number: Optional[str] = None
@@ -106,7 +107,7 @@ class StudentResponse(BaseModel):
     bus_opted: str  # yes, no
     new_student: str
     pickup_location: str 
-    distance_school: float
+    distance_school: Optional[float] = None
     created_at: str
     updated_at: str
 
@@ -267,13 +268,29 @@ async def get_all_students(current_user: dict = Depends(get_admin_user)):
 
 @api_router.post("/admin/students", response_model=StudentResponse)
 async def create_student(student_data: StudentCreate, current_user: dict = Depends(get_admin_user)):
-    # Check if email or roll number already exists
-    existing = await db.students.find_one(
-        {"$or": [{"email": student_data.email}, {"roll_number": student_data.roll_number}]},
-        {"_id": 0}
-    )
-    if existing:
-        raise HTTPException(status_code=400, detail="Email or roll number already exists")
+
+    conditions = []
+
+    # check email only if provided
+    if student_data.email not in [None, ""]:
+        conditions.append({"email": student_data.email})
+
+    # check roll number only if provided
+    if student_data.roll_number not in [None, ""]:
+        conditions.append({"roll_number": student_data.roll_number})
+
+    # run query only if any field exists
+    if conditions:
+        existing = await db.students.find_one(
+            {"$or": conditions},
+            {"_id": 0}
+        )
+
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail="Email or roll number already exists"
+            )
     
     student = Student(
         enrollment_number=student_data.enrollment_number,
@@ -456,10 +473,27 @@ def is_within_academic_year(date_to_check):
 @app.post("/api/fees/calculate")
 async def calculate_fee(student: dict):
 
-    frequency = student.get("frequency", "quarterly")
+    student_id = student.get("_id")
+
+    # -------- Ensure fee_cycle exists in students collection --------
+    frequency = student.get("frequency")
+
+    if not frequency:
+        result = db.students.find_one_and_update(
+            {"_id": student_id, "fee_cycle": {"$exists": False}},
+            {"$set": {"fee_cycle": "quarterly"}},
+            return_document=ReturnDocument.AFTER
+        )
+
+        if result:
+            frequency = result["fee_cycle"]
+        else:
+            existing = db.students.find_one({"_id": student_id})
+            frequency = existing.get("fee_cycle", "quarterly")
 
     total = 0
     admission = 0
+    caution = 0
 
     created_at = datetime.fromisoformat(student["created_at"])
 
@@ -502,6 +536,7 @@ async def calculate_fee(student: dict):
 
     total += tuition
 
+    # Bus fee
     distance = student.get("distance_school", 0)
 
     if distance < 2.5:
@@ -517,6 +552,7 @@ async def calculate_fee(student: dict):
 
     total += bus_fee
 
+    # Caution money
     try:
         if int(class_name) >= 6:
             caution = 1000
@@ -524,8 +560,33 @@ async def calculate_fee(student: dict):
     except:
         pass
 
-    return {"total_fee": total, "tuition_fee":tuition, "bus_fee":bus_fee, "annual_fee": annual, "admission_fee": admission, "caution_money": caution}
+    # -------- Check existing payment --------
+    payment = db.payments.find_one({"student_id": student_id})
 
+    if payment:
+        return {
+            "message": "Payment already exists",
+            "payment": payment
+        }
+
+    # -------- Check concession --------
+    concession = db.concessions.find_one({"student_id": student_id})
+
+    concession_amount = 0
+    if concession:
+        concession_amount = concession.get("amount", 0)
+        total -= concession_amount
+
+    return {
+        "total_fee": total,
+        "tuition_fee": tuition,
+        "bus_fee": bus_fee,
+        "annual_fee": annual,
+        "admission_fee": admission,
+        "caution_money": caution,
+        "concession": concession_amount
+    }
+    
 async def calculate_concession(student):
     # fetch data from concessions collection
     concession = 0
