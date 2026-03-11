@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
+from pymongo import ReturnDocument
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -94,7 +95,7 @@ class StudentUpdate(BaseModel):
 class StudentResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
-    enrollment_number: str
+    enrollment_number: Optional[str] = None
     roll_number: str
     name: str
     email: Optional[EmailStr] = None
@@ -104,12 +105,21 @@ class StudentResponse(BaseModel):
     parent_name: str
     parent_phone: str
     address: str
-    bus_opted: str  # yes, no
-    new_student: str
-    pickup_location: str 
+    bus_opted: Optional[str] = None  # yes, no
+    new_student: Optional[str] = None
+    pickup_location: Optional[str] = None
     distance_school: Optional[float] = None
     created_at: str
     updated_at: str
+
+class ConcessionUpsertRequest(BaseModel):
+    percent: int = Field(..., ge=0, le=100)
+    reason: Optional[str] = None
+
+class ConcessionStatusResponse(BaseModel):
+    applied: bool
+    percent: Optional[int] = None
+    reason: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -351,6 +361,69 @@ async def reset_student_password(student_id: str, request: PasswordResetRequest,
     )
     return {"message": "Password reset successfully"}
 
+@api_router.get("/admin/students/{student_id}/concession", response_model=ConcessionStatusResponse)
+async def get_student_concession(student_id: str, current_user: dict = Depends(get_admin_user)):
+    student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    concession = await db.concessions.find_one({"student_id": student_id}, {"_id": 0})
+    if not concession or concession.get("percent") is None:
+        return ConcessionStatusResponse(applied=False)
+
+    return ConcessionStatusResponse(
+        applied=True,
+        percent=int(concession["percent"]),
+        reason=concession.get("reason"),
+    )
+
+@api_router.put("/admin/students/{student_id}/concession", response_model=ConcessionStatusResponse)
+async def upsert_student_concession(
+    student_id: str,
+    payload: ConcessionUpsertRequest,
+    current_user: dict = Depends(get_admin_user),
+):
+    student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    if payload.percent not in (25, 50, 75, 100):
+        raise HTTPException(status_code=400, detail="Concession percent must be 25, 50, 75, or 100")
+
+    reason = payload.reason.strip().lower() if isinstance(payload.reason, str) else None
+    if reason not in (None, "", "sibling", "staff", "government sponsored"):
+        raise HTTPException(status_code=400, detail="Invalid concession reason")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.concessions.update_one(
+        {"student_id": student_id},
+        {
+            "$set": {
+                "student_id": student_id,
+                "percent": int(payload.percent),
+                "reason": (reason or None),
+                "updated_at": now,
+            },
+            "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": now},
+        },
+        upsert=True,
+    )
+
+    return ConcessionStatusResponse(
+        applied=True,
+        percent=int(payload.percent),
+        reason=(reason or None),
+    )
+
+@api_router.delete("/admin/students/{student_id}/concession", response_model=ConcessionStatusResponse)
+async def delete_student_concession(student_id: str, current_user: dict = Depends(get_admin_user)):
+    student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    await db.concessions.delete_one({"student_id": student_id})
+    return ConcessionStatusResponse(applied=False)
+
 @api_router.get("/admin/payments", response_model=List[dict])
 async def get_all_payments(current_user: dict = Depends(get_admin_user)):
     payments = await db.payments.find({}, {"_id": 0}).to_list(1000)
@@ -473,14 +546,16 @@ def is_within_academic_year(date_to_check):
 @app.post("/api/fees/calculate")
 async def calculate_fee(student: dict):
 
-    student_id = student.get("_id")
+    student_id = student.get("id") or student.get("_id")
+    if not student_id:
+        raise HTTPException(status_code=400, detail="Missing student id")
 
     # -------- Ensure fee_cycle exists in students collection --------
     frequency = student.get("frequency")
 
     if not frequency:
-        result = db.students.find_one_and_update(
-            {"_id": student_id, "fee_cycle": {"$exists": False}},
+        result = await db.students.find_one_and_update(
+            {"id": student_id, "fee_cycle": {"$exists": False}},
             {"$set": {"fee_cycle": "quarterly"}},
             return_document=ReturnDocument.AFTER
         )
@@ -488,8 +563,8 @@ async def calculate_fee(student: dict):
         if result:
             frequency = result["fee_cycle"]
         else:
-            existing = db.students.find_one({"_id": student_id})
-            frequency = existing.get("fee_cycle", "quarterly")
+            existing = await db.students.find_one({"id": student_id})
+            frequency = (existing or {}).get("fee_cycle", "quarterly")
 
     total = 0
     admission = 0
@@ -561,20 +636,29 @@ async def calculate_fee(student: dict):
         pass
 
     # -------- Check existing payment --------
-    payment = db.payments.find_one({"student_id": student_id})
+    payment = await db.payments.find_one({"student_id": student_id}, {"_id": 0})
 
     if payment:
+        if isinstance(payment.get("paid_at"), datetime):
+            payment["paid_at"] = payment["paid_at"].isoformat()
         return {
             "message": "Payment already exists",
             "payment": payment
         }
 
     # -------- Check concession --------
-    concession = db.concessions.find_one({"student_id": student_id})
+    concession = await db.concessions.find_one({"student_id": student_id}, {"_id": 0})
 
     concession_amount = 0
+    concession_percent = 0
     if concession:
-        concession_amount = concession.get("amount", 0)
+        if concession.get("percent") is not None:
+            concession_percent = float(concession.get("percent") or 0)
+            # Concession percent applies only on tuition fee.
+            concession_amount = round((tuition * concession_percent) / 100.0, 2)
+        else:
+            # Backward compatibility with older docs that stored fixed amounts.
+            concession_amount = concession.get("amount", 0)
         total -= concession_amount
 
     return {
@@ -584,7 +668,9 @@ async def calculate_fee(student: dict):
         "annual_fee": annual,
         "admission_fee": admission,
         "caution_money": caution,
-        "concession": concession_amount
+        "concession": concession_amount,
+        "concession_percent": concession_percent or None,
+        "concession_reason": concession.get("reason") if concession else None,
     }
     
 async def calculate_concession(student):
