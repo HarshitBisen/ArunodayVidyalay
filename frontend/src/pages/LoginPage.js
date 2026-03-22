@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, Link } from 'react-router-dom';
-import { UserCircle, Lock, GraduationCap } from 'lucide-react';
+import { UserCircle, Lock, GraduationCap, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -108,23 +109,31 @@ export default function LoginPage() {
             </div>
 
             <div data-testid="password-field">
-              <label className="block font-outfit font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                <Input
-                  type="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  required
-                  placeholder="Enter your password"
-                  className="w-full border-2 border-sunny-border rounded-lg pl-10 pr-4 py-3 focus:border-sunny-orange focus:ring-0 outline-none"
-                  data-testid="login-password-input"
-                />
-              </div>
-            </div>
+	              <label className="block font-outfit font-medium text-gray-700 mb-2">
+	                Password
+	              </label>
+	              <div className="relative">
+	                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+	                <Input
+	                  type={showPassword ? 'text' : 'password'}
+	                  name="password"
+	                  value={formData.password}
+	                  onChange={handleChange}
+	                  required
+	                  placeholder="Enter your password"
+	                  className="w-full border-2 border-sunny-border rounded-lg pl-10 pr-12 py-3 focus:border-sunny-orange focus:ring-0 outline-none"
+	                  data-testid="login-password-input"
+	                />
+	                <button
+	                  type="button"
+	                  onClick={() => setShowPassword((v) => !v)}
+	                  className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+	                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+	                >
+	                  {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+	                </button>
+	              </div>
+	            </div>
 
             <Button
               type="submit"

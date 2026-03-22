@@ -30,6 +30,9 @@ export default function StudentOverview() {
     return <div className="font-outfit">Loading...</div>;
   }
 
+  const feeAmount = Number(profile?.fee_amount ?? 0);
+  const feeStatus = profile?.fee_status ?? 'pending';
+
   return (
     <div data-testid="student-overview">
       <h1 className="text-4xl font-fredoka font-bold text-sunny-navy mb-8">Dashboard Overview</h1>
@@ -65,37 +68,37 @@ export default function StudentOverview() {
         {/* Fee Status Card */}
         <div className="bg-white rounded-3xl p-8 border-2 border-sunny-navy feature-card-shadow" data-testid="fee-status-card">
           <h3 className="text-2xl font-fredoka font-bold text-sunny-navy mb-6">Fee Status</h3>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-outfit text-gray-600 mb-2">Total Fee Amount</p>
-              <p className="text-4xl font-fredoka font-bold text-sunny-navy">
-                ₹{profile.fee_amount.toLocaleString()}
-              </p>
-            </div>
-            <div
-              className={`w-20 h-20 rounded-full flex items-center justify-center ${
-                profile.fee_status === 'paid' ? 'bg-green-500' : 'bg-red-500'
-              }`}
-            >
-              {profile.fee_status === 'paid' ? (
-                <CheckCircle className="w-10 h-10 text-white" />
-              ) : (
-                <XCircle className="w-10 h-10 text-white" />
-              )}
-            </div>
-          </div>
-          <div className="mt-6">
-            <span
-              className={`px-4 py-2 rounded-full font-outfit font-semibold ${
-                profile.fee_status === 'paid'
-                  ? 'bg-green-100 text-green-700'
-                  : 'bg-red-100 text-red-700'
-              }`}
-            >
-              {profile.fee_status === 'paid' ? 'Fee Paid' : 'Fee Pending'}
-            </span>
-          </div>
-        </div>
+	          <div className="flex items-center justify-between">
+	            <div>
+	              <p className="font-outfit text-gray-600 mb-2">Total Fee Amount</p>
+	              <p className="text-4xl font-fredoka font-bold text-sunny-navy">
+	                ₹{feeAmount.toLocaleString()}
+	              </p>
+	            </div>
+	            <div
+	              className={`w-20 h-20 rounded-full flex items-center justify-center ${
+	                feeStatus === 'paid' ? 'bg-green-500' : 'bg-red-500'
+	              }`}
+	            >
+	              {feeStatus === 'paid' ? (
+	                <CheckCircle className="w-10 h-10 text-white" />
+	              ) : (
+	                <XCircle className="w-10 h-10 text-white" />
+	              )}
+	            </div>
+	          </div>
+	          <div className="mt-6">
+	            <span
+	              className={`px-4 py-2 rounded-full font-outfit font-semibold ${
+	                feeStatus === 'paid'
+	                  ? 'bg-green-100 text-green-700'
+	                  : 'bg-red-100 text-red-700'
+	              }`}
+	            >
+	              {feeStatus === 'paid' ? 'Fee Paid' : 'Fee Pending'}
+	            </span>
+	          </div>
+	        </div>
       </div>
 
       {/* Payment History */}
@@ -118,12 +121,12 @@ export default function StudentOverview() {
                 </tr>
               </thead>
               <tbody>
-                {payments.map((payment) => (
-                  <tr key={payment.id} className="border-b hover:bg-gray-50">
-                    <td className="font-outfit text-gray-600 py-3">{payment.transaction_id}</td>
-                    <td className="font-outfit text-gray-900 font-semibold py-3">
-                      ₹{payment.amount.toLocaleString()}
-                    </td>
+	                {payments.map((payment) => (
+	                  <tr key={payment.id} className="border-b hover:bg-gray-50">
+	                    <td className="font-outfit text-gray-600 py-3">{payment.transaction_id}</td>
+	                    <td className="font-outfit text-gray-900 font-semibold py-3">
+	                      ₹{Number(payment.amount ?? 0).toLocaleString()}
+	                    </td>
                     <td className="font-outfit text-gray-600 py-3">
                       {new Date(payment.paid_at).toLocaleDateString()}
                     </td>
