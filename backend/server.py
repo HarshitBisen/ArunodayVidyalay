@@ -57,8 +57,11 @@ class Student(BaseModel):
     bus_opted: str  # yes, no
     new_student: str
     pickup_location: str 
-    distance_school: Optional[float] = None
-    fee_cycle: str = 'q'
+    distance_school: Optional[float] = Field(default=None, ge=0)
+    fee_cycle: str = 'm'  # monthly
+    academic_year: str
+    fee_status: str = "pending"  # pending, paid
+    fee_amount: float = 0.0
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -77,7 +80,8 @@ class StudentCreate(BaseModel):
     bus_opted: str  # yes, no
     new_student: str
     pickup_location: str 
-    distance_school: Optional[float] = None
+    distance_school: Optional[float] = Field(default=None, ge=0)
+    academic_year: str
 
 class StudentUpdate(BaseModel):
     roll_number: Optional[str] = None
@@ -90,7 +94,8 @@ class StudentUpdate(BaseModel):
     address: Optional[str] = None
     bus_opted: Optional[str] = None
     pickup_location: Optional[str] = None
-    distance_school: Optional[float] = None
+    distance_school: Optional[float] = Field(default=None, ge=0)
+    academic_year: Optional[str] = None
 
 class StudentResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -109,6 +114,9 @@ class StudentResponse(BaseModel):
     new_student: Optional[str] = None
     pickup_location: Optional[str] = None
     distance_school: Optional[float] = None
+    fee_status: Optional[str] = None
+    fee_amount: Optional[float] = None
+    academic_year: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -120,6 +128,8 @@ class ConcessionStatusResponse(BaseModel):
     applied: bool
     percent: Optional[int] = None
     reason: Optional[str] = None
+    locked: bool = False
+    year: Optional[int] = None
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -146,6 +156,7 @@ class FeePayment(BaseModel):
     payment_method: str = "Bank of Baroda PayPoint"
     transaction_id: str
     status: str = "success"
+    breakup: Optional[dict] = None
     paid_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class FeePaymentCreate(BaseModel):
@@ -274,12 +285,21 @@ async def get_all_students(current_user: dict = Depends(get_admin_user)):
     for student in students:
         student['created_at'] = student['created_at'].isoformat() if isinstance(student['created_at'], datetime) else student['created_at']
         student['updated_at'] = student['updated_at'].isoformat() if isinstance(student['updated_at'], datetime) else student['updated_at']
+        if not student.get("academic_year"):
+            try:
+                created = student.get("created_at")
+                created_dt = created if isinstance(created, datetime) else datetime.fromisoformat(created)
+            except Exception:
+                created_dt = datetime.now(timezone.utc)
+            student["academic_year"] = academic_year_for(created_dt)
     return students
 
 @api_router.post("/admin/students", response_model=StudentResponse)
 async def create_student(student_data: StudentCreate, current_user: dict = Depends(get_admin_user)):
 
     conditions = []
+    if not student_data.academic_year or not student_data.academic_year.strip():
+        raise HTTPException(status_code=400, detail="Academic year is required")
 
     # check email only if provided
     if student_data.email not in [None, ""]:
@@ -317,7 +337,8 @@ async def create_student(student_data: StudentCreate, current_user: dict = Depen
         bus_opted=student_data.bus_opted,
         new_student=student_data.new_student,
         pickup_location=student_data.pickup_location,
-        distance_school=student_data.distance_school
+        distance_school=student_data.distance_school,
+        academic_year=(student_data.academic_year or academic_year_for(datetime.now(timezone.utc))),
     )
     
     doc = student.model_dump()
@@ -334,6 +355,9 @@ async def update_student(student_id: str, student_data: StudentUpdate, current_u
         raise HTTPException(status_code=404, detail="Student not found")
     
     update_data = student_data.model_dump(exclude_unset=True)
+    if "academic_year" in update_data:
+        if not update_data["academic_year"] or not str(update_data["academic_year"]).strip():
+            raise HTTPException(status_code=400, detail="Academic year is required")
     if update_data:
         update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
         await db.students.update_one({"id": student_id}, {"$set": update_data})
@@ -371,10 +395,14 @@ async def get_student_concession(student_id: str, current_user: dict = Depends(g
     if not concession or concession.get("percent") is None:
         return ConcessionStatusResponse(applied=False)
 
+    now_year = datetime.now(timezone.utc).year
+    concession_year = concession.get("year")
     return ConcessionStatusResponse(
         applied=True,
         percent=int(concession["percent"]),
         reason=concession.get("reason"),
+        locked=bool(concession_year == now_year),
+        year=concession_year,
     )
 
 @api_router.put("/admin/students/{student_id}/concession", response_model=ConcessionStatusResponse)
@@ -394,6 +422,15 @@ async def upsert_student_concession(
     if reason not in (None, "", "sibling", "staff", "government sponsored"):
         raise HTTPException(status_code=400, detail="Invalid concession reason")
 
+    now_year = datetime.now(timezone.utc).year
+    existing_concession = await db.concessions.find_one({"student_id": student_id}, {"_id": 0})
+    if (
+        existing_concession
+        and existing_concession.get("percent") is not None
+        and existing_concession.get("year") == now_year
+    ):
+        raise HTTPException(status_code=400, detail="Concession already applied for this year and cannot be changed")
+
     now = datetime.now(timezone.utc).isoformat()
     await db.concessions.update_one(
         {"student_id": student_id},
@@ -402,6 +439,7 @@ async def upsert_student_concession(
                 "student_id": student_id,
                 "percent": int(payload.percent),
                 "reason": (reason or None),
+                "year": now_year,
                 "updated_at": now,
             },
             "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": now},
@@ -413,6 +451,8 @@ async def upsert_student_concession(
         applied=True,
         percent=int(payload.percent),
         reason=(reason or None),
+        locked=True,
+        year=now_year,
     )
 
 @api_router.delete("/admin/students/{student_id}/concession", response_model=ConcessionStatusResponse)
@@ -420,6 +460,11 @@ async def delete_student_concession(student_id: str, current_user: dict = Depend
     student = await db.students.find_one({"id": student_id}, {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
+
+    now_year = datetime.now(timezone.utc).year
+    existing_concession = await db.concessions.find_one({"student_id": student_id}, {"_id": 0})
+    if existing_concession and existing_concession.get("percent") is not None and existing_concession.get("year") == now_year:
+        raise HTTPException(status_code=400, detail="Concession already applied for this year and cannot be changed")
 
     await db.concessions.delete_one({"student_id": student_id})
     return ConcessionStatusResponse(applied=False)
@@ -443,6 +488,13 @@ async def get_student_profile(current_user: dict = Depends(get_current_user)):
     
     student['created_at'] = student['created_at'].isoformat() if isinstance(student['created_at'], datetime) else student['created_at']
     student['updated_at'] = student['updated_at'].isoformat() if isinstance(student['updated_at'], datetime) else student['updated_at']
+    if not student.get("academic_year"):
+        try:
+            created = student.get("created_at")
+            created_dt = created if isinstance(created, datetime) else datetime.fromisoformat(created)
+        except Exception:
+            created_dt = datetime.now(timezone.utc)
+        student["academic_year"] = academic_year_for(created_dt)
     return StudentResponse(**student)
 
 @api_router.post("/student/change-password")
@@ -473,13 +525,26 @@ async def pay_fee(payment_data: FeePaymentCreate, current_user: dict = Depends(g
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
-    if student['fee_status'] == 'paid':
+    if student.get('fee_status') == 'paid':
         raise HTTPException(status_code=400, detail="Fee already paid")
+
+    existing_payment = await db.payments.find_one({"student_id": current_user['user_id']}, {"_id": 0})
+    if existing_payment:
+        raise HTTPException(status_code=400, detail="Payment already exists")
+
+    fee = await build_fee_breakup(student, current_user["user_id"])
+    payable = float(fee.get("total_fee") or 0)
+    requested = float(payment_data.amount or 0)
+    if payable <= 0:
+        raise HTTPException(status_code=400, detail="Invalid payable amount")
+    if abs(requested - payable) > 0.01:
+        raise HTTPException(status_code=400, detail="Amount mismatch")
     
     payment = FeePayment(
         student_id=current_user['user_id'],
-        amount=payment_data.amount,
-        transaction_id=payment_data.transaction_id
+        amount=payable,
+        transaction_id=payment_data.transaction_id,
+        breakup=fee.get("breakup"),
     )
     
     doc = payment.model_dump()
@@ -491,7 +556,7 @@ async def pay_fee(payment_data: FeePaymentCreate, current_user: dict = Depends(g
         {"$set": {"fee_status": "paid", "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     
-    return {"message": "Fee payment successful", "payment_id": payment.id}
+    return {"message": "Fee payment successful", "payment_id": payment.id, "breakup": fee.get("breakup")}
 
 @api_router.get("/student/payments", response_model=List[dict])
 async def get_student_payments(current_user: dict = Depends(get_current_user)):
@@ -536,53 +601,45 @@ logger = logging.getLogger(__name__)
 async def shutdown_db_client():
     client.close()
 
-def is_within_academic_year(date_to_check):
-    start = datetime(2026, 4, 1, tzinfo=timezone.utc)
-    end = datetime(2027, 3, 31, 23, 59, 59, tzinfo=timezone.utc)
-
+def is_within_academic_year(date_to_check: datetime) -> bool:
+    # Current academic year: April -> March.
+    now = datetime.now(timezone.utc)
+    start_year = now.year if now.month >= 4 else now.year - 1
+    start = datetime(start_year, 4, 1, tzinfo=timezone.utc)
+    end = datetime(start_year + 1, 3, 31, 23, 59, 59, tzinfo=timezone.utc)
     return start <= date_to_check <= end
 
+def academic_year_for(date_to_check: datetime) -> str:
+    # Indian academic year: April -> March.
+    year = date_to_check.year
+    if date_to_check.month >= 4:
+        start_year = year
+        end_year = year + 1
+    else:
+        start_year = year - 1
+        end_year = year
+    return f"{start_year}-{str(end_year)[-2:]}"
 
-@app.post("/api/fees/calculate")
-async def calculate_fee(student: dict):
-
-    student_id = student.get("id") or student.get("_id")
-    if not student_id:
-        raise HTTPException(status_code=400, detail="Missing student id")
-
-    # -------- Ensure fee_cycle exists in students collection --------
-    frequency = student.get("frequency")
-
-    if not frequency:
-        result = await db.students.find_one_and_update(
-            {"id": student_id, "fee_cycle": {"$exists": False}},
-            {"$set": {"fee_cycle": "quarterly"}},
-            return_document=ReturnDocument.AFTER
-        )
-
-        if result:
-            frequency = result["fee_cycle"]
-        else:
-            existing = await db.students.find_one({"id": student_id})
-            frequency = (existing or {}).get("fee_cycle", "quarterly")
-
-    total = 0
+async def build_fee_breakup(student: dict, student_id: str) -> dict:
     admission = 0
     caution = 0
 
-    created_at = datetime.fromisoformat(student["created_at"])
+    created_raw = student.get("created_at")
+    try:
+        created_at = created_raw if isinstance(created_raw, datetime) else datetime.fromisoformat(created_raw)
+    except Exception:
+        created_at = datetime.now(timezone.utc)
 
-    # Admission fee
+    total = 0.0
+
     if student.get("new_student") == 'yes' and is_within_academic_year(created_at):
         admission = 1000
         total += admission
 
-    # Annual fee
     annual = 1000
     total += annual
 
     class_name = student.get("class_name")
-
     if class_name == "Nursery":
         tuition = 800
     elif class_name == "LKG":
@@ -606,15 +663,18 @@ async def calculate_fee(student: dict):
     else:
         tuition = 0
 
-    if frequency == "quarterly":
-        tuition *= 3
-
     total += tuition
 
-    # Bus fee
-    distance = student.get("distance_school", 0)
+    distance = student.get("distance_school", 0) or 0
+    try:
+        distance = max(0.0, float(distance))
+    except Exception:
+        distance = 0.0
 
-    if distance < 2.5:
+    # Bus fee is waived for June only.
+    if datetime.now(timezone.utc).month == 6:
+        bus_fee = 0
+    elif distance < 2.5:
         bus_fee = 600
     elif distance < 5:
         bus_fee = 800
@@ -627,13 +687,61 @@ async def calculate_fee(student: dict):
 
     total += bus_fee
 
-    # Caution money
     try:
         if int(class_name) >= 6:
             caution = 1000
             total += caution
-    except:
+    except Exception:
         pass
+
+    concession = await db.concessions.find_one({"student_id": student_id}, {"_id": 0})
+    concession_amount = 0.0
+    concession_percent = 0.0
+    if concession:
+        if concession.get("percent") is not None:
+            concession_percent = float(concession.get("percent") or 0)
+            concession_base = tuition + admission
+            concession_amount = round((concession_base * concession_percent) / 100.0, 2)
+        else:
+            concession_amount = float(concession.get("amount", 0) or 0)
+
+    sum_items = {
+        "admission_fee": float(admission),
+        "annual_fee": float(annual),
+        "tuition_fee": float(tuition),
+        "bus_fee": float(bus_fee),
+        "caution_money": float(caution),
+    }
+    subs_items = {}
+    if concession_amount:
+        subs_items["concession"] = float(concession_amount)
+
+    total_fee = round(sum(sum_items.values()) - sum(subs_items.values()), 2)
+
+    return {
+        "total_fee": total_fee,
+        "tuition_fee": tuition,
+        "bus_fee": bus_fee,
+        "annual_fee": annual,
+        "admission_fee": admission,
+        "caution_money": caution,
+        "concession": concession_amount,
+        "concession_percent": concession_percent or None,
+        "concession_reason": concession.get("reason") if concession else None,
+        "breakup": {
+            "sum": sum_items,
+            "subs": subs_items,
+            "total": total_fee,
+        },
+    }
+
+
+@app.post("/api/fees/calculate")
+async def calculate_fee(student: dict):
+
+    student_id = student.get("id") or student.get("_id")
+    if not student_id:
+        raise HTTPException(status_code=400, detail="Missing student id")
 
     # -------- Check existing payment --------
     payment = await db.payments.find_one({"student_id": student_id}, {"_id": 0})
@@ -645,33 +753,7 @@ async def calculate_fee(student: dict):
             "message": "Payment already exists",
             "payment": payment
         }
-
-    # -------- Check concession --------
-    concession = await db.concessions.find_one({"student_id": student_id}, {"_id": 0})
-
-    concession_amount = 0
-    concession_percent = 0
-    if concession:
-        if concession.get("percent") is not None:
-            concession_percent = float(concession.get("percent") or 0)
-            # Concession percent applies only on tuition fee.
-            concession_amount = round((tuition * concession_percent) / 100.0, 2)
-        else:
-            # Backward compatibility with older docs that stored fixed amounts.
-            concession_amount = concession.get("amount", 0)
-        total -= concession_amount
-
-    return {
-        "total_fee": total,
-        "tuition_fee": tuition,
-        "bus_fee": bus_fee,
-        "annual_fee": annual,
-        "admission_fee": admission,
-        "caution_money": caution,
-        "concession": concession_amount,
-        "concession_percent": concession_percent or None,
-        "concession_reason": concession.get("reason") if concession else None,
-    }
+    return await build_fee_breakup(student, student_id)
     
 async def calculate_concession(student):
     # fetch data from concessions collection

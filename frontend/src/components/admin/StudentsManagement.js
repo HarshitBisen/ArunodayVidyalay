@@ -1,17 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Key } from 'lucide-react';
+import { Plus, Edit, Trash2, Key, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/utils/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
+const getCurrentAcademicYear = () => {
+  const now = new Date();
+  // Academic year: April -> March. JS months are 0-indexed, so April is 3.
+  const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  const endYear = startYear + 1;
+  return `${startYear}-${String(endYear).slice(-2)}`;
+};
+
+const getAcademicYearOptions = (count = 3) => {
+  const now = new Date();
+  const startYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  const years = [];
+  for (let i = 0; i < count; i += 1) {
+    const start = startYear + i;
+    const end = start + 1;
+    years.push(`${start}-${String(end).slice(-2)}`);
+  }
+  return years;
+};
+
 export default function StudentsManagement() {
+  const academicYearOptions = getAcademicYearOptions(3);
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [formData, setFormData] = useState({
     enrollment_number:'',
@@ -24,13 +46,14 @@ export default function StudentsManagement() {
     phone: '',
     address: '',
     parent_name: '',
-    parent_phone: '',
-    bus_opted:'',
-    pickup_location:'',
-    distance_school:'',
-    new_student: ''
-  });
-  const [passwordData, setPasswordData] = useState({ new_password: '' });
+	    parent_phone: '',
+	    bus_opted:'',
+	    pickup_location:'',
+	    distance_school:'',
+	    new_student: '',
+	    academic_year: getCurrentAcademicYear(),
+	  });
+	  const [passwordData, setPasswordData] = useState({ new_password: '' });
 
   useEffect(() => {
     fetchStudents();
@@ -143,12 +166,15 @@ export default function StudentsManagement() {
       bus_opted: student.bus_opted,
       pickup_location: student.pickup_location,
       distance_school: student.distance_school,
+      academic_year: student.academic_year || getCurrentAcademicYear(),
     });
     setShowEditModal(true);
   };
 
   const openPasswordModal = (student) => {
     setSelectedStudent(student);
+    setPasswordData({ new_password: '' });
+    setShowNewPassword(false);
     setShowPasswordModal(true);
   };
 
@@ -168,7 +194,8 @@ export default function StudentsManagement() {
       bus_opted:'',
       pickup_location:'',
       distance_school:'',
-      new_student: ''
+      new_student: '',
+      academic_year: getCurrentAcademicYear(),
     });
     setSelectedStudent(null);
   };
@@ -199,78 +226,80 @@ export default function StudentsManagement() {
             <DialogHeader>
               <DialogTitle className="text-2xl font-fredoka font-bold text-sunny-navy">Add New Student</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleAdd} className="space-y-4 mt-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="grid grid-cols-2 gap-4">
-                  
-                  <div>
-                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Enrollment Number *</label>
-                    <Input
-                      className="bg-white w-full"
-                      value={formData.enrollment_number}
-                      onChange={(e) =>
-                        setFormData({ ...formData, enrollment_number: e.target.value })
-                      }
-                      required
-                      data-testid="add-enrollment-number"
-                    />
-                  </div>
+	            <form onSubmit={handleAdd} className="mt-4 space-y-6">
+	              <div className="rounded-2xl border border-sunny-border bg-gradient-to-br from-sunny-cream/70 via-white to-sunny-blue/5 p-4 shadow-sm">
+	                <div className="mb-4 flex items-baseline justify-between gap-4">
+	                  <h3 className="font-fredoka text-lg font-bold text-sunny-navy">Student Details</h3>
+	                  <p className="font-outfit text-xs text-gray-600">Fields marked * are required</p>
+	                </div>
+		                <div className="grid md:grid-cols-2 gap-4">
+		                  <div>
+		                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Enrollment Number *</label>
+		                    <Input
+		                      className="w-full bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+		                      value={formData.enrollment_number}
+		                      onChange={(e) =>
+		                        setFormData({ ...formData, enrollment_number: e.target.value })
+		                      }
+		                      required
+		                      data-testid="add-enrollment-number"
+		                    />
+		                  </div>
 
-                  <div>
-                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Class Roll Number</label>
-                    <Input
-                      className="bg-white w-full"
-                      value={formData.roll_number}
-                      onChange={(e) => setFormData({ ...formData, roll_number: e.target.value })}
-                      data-testid="add-roll-number"
-                    />
-                  </div>
-                </div>
+		                  <div>
+		                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Class Roll Number</label>
+		                    <Input
+		                      className="w-full bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+		                      value={formData.roll_number}
+		                      onChange={(e) => setFormData({ ...formData, roll_number: e.target.value })}
+		                      data-testid="add-roll-number"
+		                    />
+		                  </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Name *</label>
-                  <Input
-                    className="bg-white"
-                    value={formData.name}
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Name *</label>
+	                  <Input
+	                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                    value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
                     data-testid="add-name"
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Email </label>
-                  <Input
-                    className="bg-white"
-                    type="email"
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Email </label>
+	                  <Input
+	                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                    type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     data-testid="add-email"
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Password *</label>
-                  <Input
-                    className="bg-white"
-                    type="password"
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Password *</label>
+	                  <Input
+	                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                    type="password"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     required
                     data-testid="add-password"
                   />
                 </div>
-                <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
-                    Class *
-                  </label>
+	                <div>
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+	                    Class *
+	                  </label>
 
-                  <select
-                    className="bg-white w-full border rounded-md px-3 py-2 font-outfit"
-                    value={formData.class_name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, class_name: e.target.value })
-                    }
-                    required
-                    data-testid="add-class"
-                  >
+	                  <select
+	                    className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+	                    value={formData.class_name}
+	                    onChange={(e) =>
+	                      setFormData({ ...formData, class_name: e.target.value })
+	                    }
+	                    required
+	                    data-testid="add-class"
+	                  >
                     <option value="">Select Class</option>
                     <option value="Nursery">Nursery</option>
                     <option value="LKG">LKG</option>
@@ -282,123 +311,193 @@ export default function StudentsManagement() {
                     <option value="5">5th</option>
                     <option value="6">6th</option>
                     <option value="7">7th</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Section</label>
-                  <Input
-                    className="bg-white"
-                    value={formData.section}
+	                  </select>
+	                </div>
+	                <div>
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+	                    Academic Year *
+	                  </label>
+		                  <select
+		                    className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+		                    value={formData.academic_year}
+		                    onChange={(e) => setFormData({ ...formData, academic_year: e.target.value })}
+		                    required
+		                    data-testid="add-academic-year"
+		                  >
+	                    {academicYearOptions.map((yr) => (
+	                      <option key={yr} value={yr}>
+	                        {yr}
+	                      </option>
+	                    ))}
+	                  </select>
+	                </div>
+	                <div>
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Section</label>
+	                  <Input
+	                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                    value={formData.section}
                     onChange={(e) => setFormData({ ...formData, section: e.target.value })}
                     data-testid="add-section"
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Phone</label>
-                  <Input
-                    className="bg-white"
-                    value={formData.phone}
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Phone</label>
+	                  <Input
+	                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                    value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     data-testid="add-phone"
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Permanent Address *</label>
-                  <Input
-                    className="bg-white"
-                    value={formData.address}
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Permanent Address *</label>
+	                  <Input
+	                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                    value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     required
                     data-testid="add-address"
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Name *</label>
-                  <Input
-                    className="bg-white"
-                    value={formData.parent_name}
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Name *</label>
+	                  <Input
+	                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                    value={formData.parent_name}
                     onChange={(e) => setFormData({ ...formData, parent_name: e.target.value })}
                     required
                     data-testid="add-parent-name"
                   />
                 </div>
                 <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Phone *</label>
-                  <Input
-                    className="bg-white"
-                    value={formData.parent_phone}
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Phone *</label>
+	                  <Input
+	                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                    value={formData.parent_phone}
                     onChange={(e) => setFormData({ ...formData, parent_phone: e.target.value })}
                     required
                     data-testid="add-parent-phone"
                   />
                 </div>
-                <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Bus Service Opted *</label>
-                  <select
-                    value={formData.bus_opted}
-                    onChange={(e) => {
-                      const value = e.target.value;
+		                <div className="rounded-xl border border-sunny-border bg-white p-3">
+		                  <label className="block font-outfit font-semibold text-sunny-navy mb-2 text-sm">
+		                    New Student *
+		                  </label>
+	                  <div className="flex items-center gap-6">
+	                    <label className="flex cursor-pointer items-center gap-2 font-outfit text-gray-700">
+	                      <input
+	                        type="radio"
+	                        name="new_student"
+	                        value="yes"
+	                        checked={formData.new_student === "yes"}
+	                        onChange={() => setFormData({ ...formData, new_student: "yes" })}
+	                        required
+	                        className="h-4 w-4 accent-sunny-blue"
+	                      />
+	                      Yes
+	                    </label>
+	                    <label className="flex cursor-pointer items-center gap-2 font-outfit text-gray-700">
+	                      <input
+	                        type="radio"
+	                        name="new_student"
+	                        value="no"
+	                        checked={formData.new_student === "no"}
+	                        onChange={() => setFormData({ ...formData, new_student: "no" })}
+	                        className="h-4 w-4 accent-sunny-blue"
+	                      />
+	                      No
+	                    </label>
+		                  </div>
+		                </div>
 
-                      setFormData({
-                        ...formData,
-                        bus_opted: value,
-                        pickup_location: value === "yes" ? formData.pickup_location : "",
-                        distance_school: value === "yes" ? formData.distance_school : ""
-                      });
-                    }}
-                    required
-                    className="w-full border border-gray-300 rounded-md p-2 text-sm">
-                    <option value="">Select</option>
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">New Student *</label>
-                  <select
-                    value={formData.new_student}
-                    onChange={(e) => setFormData({ ...formData, new_student: e.target.value })}
-                    required
-                    className="w-full border border-gray-300 rounded-md p-2 text-sm">
-                    <option value="">Select</option>
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Pickup Location</label>
-                  <Input
-                    className="bg-white"
-                    value={formData.pickup_location}
-                    onChange={(e) =>
-                      setFormData({ ...formData, pickup_location: e.target.value })
-                    }
-                    disabled={formData.bus_opted !== "yes"}
-                  />
-                </div>
-                <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Distance from School</label>
-                  <Input
-                    className="bg-white"
-                    type="number"
-                    value={formData.distance_school}
-                    onChange={(e) =>
-                      setFormData({ ...formData, distance_school: e.target.value })
-                    }
-                    disabled={formData.bus_opted !== "yes"}
-                    required={formData.bus_opted === "yes"}
-                  />
-                </div>
-              </div>
-              
-              <Button
-                type="submit"
-                className="w-full bg-sunny-yellow text-sunny-navy font-bold rounded-full py-2 hover:bg-sunny-yellow"
-                data-testid="submit-add-student"
-              >
-                Add Student
-              </Button>
-            </form>
+		                <div className="rounded-xl border border-sunny-border bg-white p-3 md:col-span-2">
+		                  <label className="block font-outfit font-semibold text-sunny-navy mb-2 text-sm">
+		                    Bus Service Opted *
+		                  </label>
+		                  <div className="flex flex-wrap items-center gap-6">
+		                    <label className="flex cursor-pointer items-center gap-2 font-outfit text-gray-700">
+		                      <input
+		                        type="radio"
+		                        name="bus_opted"
+		                        value="yes"
+		                        checked={formData.bus_opted === "yes"}
+		                        onChange={() =>
+		                          setFormData({
+		                            ...formData,
+		                            bus_opted: "yes",
+		                          })
+		                        }
+		                        required
+		                        className="h-4 w-4 accent-sunny-blue"
+		                      />
+		                      Yes
+		                    </label>
+		                    <label className="flex cursor-pointer items-center gap-2 font-outfit text-gray-700">
+		                      <input
+		                        type="radio"
+		                        name="bus_opted"
+		                        value="no"
+		                        checked={formData.bus_opted === "no"}
+		                        onChange={() =>
+		                          setFormData({
+		                            ...formData,
+		                            bus_opted: "no",
+		                            pickup_location: "",
+		                            distance_school: "",
+		                          })
+		                        }
+		                        className="h-4 w-4 accent-sunny-blue"
+		                      />
+		                      No
+		                    </label>
+		                  </div>
+
+		                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+		                    <div>
+		                      <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+		                        Pickup Location
+		                      </label>
+		                      <Input
+		                        className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+		                        value={formData.pickup_location}
+		                        onChange={(e) =>
+		                          setFormData({ ...formData, pickup_location: e.target.value })
+		                        }
+		                        disabled={formData.bus_opted !== "yes"}
+		                      />
+		                    </div>
+		                    <div>
+		                      <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+		                        Distance from School
+		                      </label>
+		                      <Input
+		                        className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+		                        type="number"
+		                        min="0"
+		                        value={formData.distance_school}
+		                        onChange={(e) =>
+		                          setFormData({ ...formData, distance_school: e.target.value })
+		                        }
+		                        disabled={formData.bus_opted !== "yes"}
+		                        required={formData.bus_opted === "yes"}
+		                      />
+		                    </div>
+		                  </div>
+		                </div>
+		                
+		                </div>
+		              </div>
+
+	              <div className="sticky bottom-0 -mx-6 border-t bg-white/90 px-6 py-4 backdrop-blur">
+	                <Button
+	                  type="submit"
+	                  className="w-full bg-sunny-yellow text-sunny-navy font-bold rounded-full py-2 hover:bg-sunny-yellow"
+	                  data-testid="submit-add-student"
+	                >
+	                  Add Student
+	                </Button>
+	              </div>
+	            </form>
           </DialogContent>
         </Dialog>
       </div>
@@ -408,13 +507,14 @@ export default function StudentsManagement() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Roll No</th>
-                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Name</th>
-                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Email</th>
-                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Class</th>
-                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Actions</th>
-              </tr>
+	              <tr>
+	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Roll No</th>
+	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Name</th>
+	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Email</th>
+	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Class</th>
+	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Academic Year</th>
+	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Actions</th>
+	              </tr>
             </thead>
             <tbody>
               {students.map((student) => (
@@ -422,11 +522,12 @@ export default function StudentsManagement() {
                   <td className="font-outfit text-gray-900 py-3 px-4">{student.roll_number}</td>
                   <td className="font-outfit text-gray-900 py-3 px-4">{student.name}</td>
                   <td className="font-outfit text-gray-600 py-3 px-4">{student.email}</td>
-                  <td className="font-outfit text-gray-900 py-3 px-4">
-                    {student.class_name}-{student.section}
-                  </td>
-                  
-                  <td className="py-3 px-4">
+	                  <td className="font-outfit text-gray-900 py-3 px-4">
+	                    {student.class_name}-{student.section}
+	                  </td>
+	                  <td className="font-outfit text-gray-600 py-3 px-4">{student.academic_year || '-'}</td>
+	                  
+	                  <td className="py-3 px-4">
                     <div className="flex space-x-2">
                       <button
                         onClick={() => openEditModal(student)}
@@ -458,47 +559,52 @@ export default function StudentsManagement() {
         </div>
       </div>
 
-      {/* Edit Modal */}
-      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="edit-student-modal">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-fredoka font-bold text-sunny-navy">Edit Student</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleEdit} className="space-y-4 mt-4">
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Class Roll Number</label>
-                <Input
-                  className="bg-white"
-                  value={formData.roll_number}
-                  onChange={(e) => setFormData({ ...formData, roll_number: e.target.value })}
-                  data-testid="edit-roll-number"
-                />
-              </div>
+	      {/* Edit Modal */}
+	      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+	        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="edit-student-modal">
+	          <DialogHeader>
+	            <DialogTitle className="text-2xl font-fredoka font-bold text-sunny-navy">Edit Student</DialogTitle>
+	          </DialogHeader>
+	          <form onSubmit={handleEdit} className="mt-4 space-y-6">
+	            <div className="rounded-2xl border border-sunny-border bg-gradient-to-br from-sunny-cream/70 via-white to-sunny-blue/5 p-4 shadow-sm">
+	              <div className="mb-4 flex items-baseline justify-between gap-4">
+	                <h3 className="font-fredoka text-lg font-bold text-sunny-navy">Student Details</h3>
+	                <p className="font-outfit text-xs text-gray-600">Update fields as needed</p>
+	              </div>
+	              <div className="grid md:grid-cols-2 gap-4">
+	              <div>
+	                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Class Roll Number</label>
+	                <Input
+	                  className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                  value={formData.roll_number}
+	                  onChange={(e) => setFormData({ ...formData, roll_number: e.target.value })}
+	                  data-testid="edit-roll-number"
+	                />
+	              </div>
               
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Email</label>
-                <Input
-                  className="bg-white"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  data-testid="edit-email"
-                />
-              </div>
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
-                  Class
-                </label>
+	              <div>
+	                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Email</label>
+	                <Input
+	                  className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                  type="email"
+	                  value={formData.email}
+	                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+	                  data-testid="edit-email"
+	                />
+	              </div>
+		              <div>
+		                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+		                  Class
+		                </label>
 
-                <select
-                  className="bg-white w-full border rounded-md px-3 py-2 font-outfit"
-                  value={formData.class_name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, class_name: e.target.value })
-                  }
-                  data-testid="edit-class"
-                >
+	                <select
+	                  className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+	                  value={formData.class_name}
+	                  onChange={(e) =>
+	                    setFormData({ ...formData, class_name: e.target.value })
+	                  }
+	                  data-testid="edit-class"
+	                >
                   <option value="">Select Class</option>
                   <option value="Nursery">Nursery</option>
                   <option value="LKG">LKG</option>
@@ -510,113 +616,173 @@ export default function StudentsManagement() {
                   <option value="5">5th</option>
                   <option value="6">6th</option>
                   <option value="7">7th</option>
-                </select>
-              </div>
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Section</label>
-                <Input
-                  className="bg-white"
-                  value={formData.section}
-                  onChange={(e) => setFormData({ ...formData, section: e.target.value })}
-                  data-testid="edit-section"
-                />
-              </div>
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Phone</label>
-                <Input
-                  className="bg-white"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  data-testid="edit-phone"
-                />
-              </div>
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Permanent Address</label>
-                <Input
-                  className="bg-white"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  data-testid="edit-address"
-                />
-              </div>
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Name</label>
-                <Input
-                  className="bg-white"
-                  value={formData.parent_name}
-                  onChange={(e) => setFormData({ ...formData, parent_name: e.target.value })}
-                  data-testid="edit-parent-name"
-                />
-              </div>
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Phone</label>
-                <Input
-                  className="bg-white"
-                  value={formData.parent_phone}
-                  onChange={(e) => setFormData({ ...formData, parent_phone: e.target.value })}
-                  data-testid="edit-parent-phone"
-                />
-              </div>
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Bus Service Opted *</label>
-                <select
-                  value={formData.bus_opted}
-                  onChange={(e) => {
-                    const value = e.target.value;
+	                </select>
+	              </div>
+		              <div>
+		                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+		                  Academic Year *
+		                </label>
+		                <select
+		                  className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+		                  value={formData.academic_year}
+		                  onChange={(e) => setFormData({ ...formData, academic_year: e.target.value })}
+		                  required
+		                  data-testid="edit-academic-year"
+		                >
+	                  {academicYearOptions.map((yr) => (
+	                    <option key={yr} value={yr}>
+	                      {yr}
+	                    </option>
+	                  ))}
+	                </select>
+	              </div>
+		              <div>
+		                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Section</label>
+		                <Input
+	                  className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                  value={formData.section}
+	                  onChange={(e) => setFormData({ ...formData, section: e.target.value })}
+	                  data-testid="edit-section"
+	                />
+	              </div>
+	              <div>
+	                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Phone</label>
+	                <Input
+	                  className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                  value={formData.phone}
+	                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+	                  data-testid="edit-phone"
+	                />
+	              </div>
+	              <div>
+	                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Permanent Address</label>
+	                <Input
+	                  className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                  value={formData.address}
+	                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+	                  data-testid="edit-address"
+	                />
+	              </div>
+	              <div>
+	                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Name</label>
+	                <Input
+	                  className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                  value={formData.parent_name}
+	                  onChange={(e) => setFormData({ ...formData, parent_name: e.target.value })}
+	                  data-testid="edit-parent-name"
+	                />
+	              </div>
+	              <div>
+	                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Parent Phone</label>
+	                <Input
+	                  className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+	                  value={formData.parent_phone}
+	                  onChange={(e) => setFormData({ ...formData, parent_phone: e.target.value })}
+	                  data-testid="edit-parent-phone"
+	                />
+	              </div>
 
-                    setFormData({
-                      ...formData,
-                      bus_opted: value,
-                      pickup_location: value === "yes" ? formData.pickup_location : "",
-                      distance_school: value === "yes" ? formData.distance_school : ""
-                    });
-                  }}
-                  required
-                  className="w-full border border-gray-300 rounded-md p-2 text-sm">
-                  <option value="">Select</option>
-                  <option value="yes">Yes</option>
-                  <option value="no">No</option>
-                </select>
-              </div>
-              <div>
-                <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Pickup Location</label>
-                <Input
-                  className="bg-white"
-                  value={formData.pickup_location}
-                  onChange={(e) =>
-                    setFormData({ ...formData, pickup_location: e.target.value })
-                  }
-                  disabled={formData.bus_opted !== "yes"}
-                />
-              </div>
-              <div>
-                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Distance from School</label>
-                  <Input
-                    className="bg-white"
-                    type="number"
-                    value={formData.distance_school}
-                    onChange={(e) =>
-                      setFormData({ ...formData, distance_school: e.target.value })
-                    }
-                    disabled={formData.bus_opted !== "yes"}
-                    required={formData.bus_opted === "yes"}
-                  />
-                </div>
-            </div>
-            
-            <Button
-              type="submit"
-              className="w-full bg-sunny-yellow text-sunny-navy font-bold rounded-full py-2 hover:bg-sunny-yellow"
-              data-testid="submit-edit-student"
-            >
-              Update Student
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
+		              <div className="rounded-xl border border-sunny-border bg-white p-3 md:col-span-2">
+		                <label className="block font-outfit font-semibold text-sunny-navy mb-2 text-sm">
+		                  Bus Service Opted *
+		                </label>
+		                <div className="flex flex-wrap items-center gap-6">
+		                  <label className="flex cursor-pointer items-center gap-2 font-outfit text-gray-700">
+		                    <input
+		                      type="radio"
+		                      name="edit_bus_opted"
+		                      value="yes"
+		                      checked={formData.bus_opted === "yes"}
+		                      onChange={() =>
+		                        setFormData({
+		                          ...formData,
+		                          bus_opted: "yes",
+		                        })
+		                      }
+		                      required
+		                      className="h-4 w-4 accent-sunny-blue"
+		                    />
+		                    Yes
+		                  </label>
+		                  <label className="flex cursor-pointer items-center gap-2 font-outfit text-gray-700">
+		                    <input
+		                      type="radio"
+		                      name="edit_bus_opted"
+		                      value="no"
+		                      checked={formData.bus_opted === "no"}
+		                      onChange={() =>
+		                        setFormData({
+		                          ...formData,
+		                          bus_opted: "no",
+		                          pickup_location: "",
+		                          distance_school: "",
+		                        })
+		                      }
+		                      className="h-4 w-4 accent-sunny-blue"
+		                    />
+		                    No
+		                  </label>
+		                </div>
+
+		                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+		                  <div>
+		                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+		                      Pickup Location
+		                    </label>
+		                    <Input
+		                      className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+		                      value={formData.pickup_location}
+		                      onChange={(e) =>
+		                        setFormData({ ...formData, pickup_location: e.target.value })
+		                      }
+		                      disabled={formData.bus_opted !== "yes"}
+		                    />
+		                  </div>
+		                  <div>
+		                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+		                      Distance from School
+		                    </label>
+		                    <Input
+		                      className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+		                      type="number"
+		                      min="0"
+		                      value={formData.distance_school}
+		                      onChange={(e) =>
+		                        setFormData({ ...formData, distance_school: e.target.value })
+		                      }
+		                      disabled={formData.bus_opted !== "yes"}
+		                      required={formData.bus_opted === "yes"}
+		                    />
+		                  </div>
+		                </div>
+		              </div>
+	            </div>
+	          </div>
+
+	          <div className="sticky bottom-0 -mx-6 border-t bg-white/90 px-6 py-4 backdrop-blur">
+	            <Button
+	              type="submit"
+	              className="w-full bg-sunny-yellow text-sunny-navy font-bold rounded-full py-2 hover:bg-sunny-yellow"
+	              data-testid="submit-edit-student"
+	            >
+	              Update Student
+	            </Button>
+	          </div>
+	          </form>
+	        </DialogContent>
+	      </Dialog>
 
       {/* Password Reset Modal */}
-      <Dialog open={showPasswordModal} onOpenChange={setShowPasswordModal}>
+      <Dialog
+        open={showPasswordModal}
+        onOpenChange={(open) => {
+          setShowPasswordModal(open);
+          if (!open) {
+            setPasswordData({ new_password: '' });
+            setShowNewPassword(false);
+          }
+        }}
+      >
         <DialogContent data-testid="password-reset-modal">
           <DialogHeader>
             <DialogTitle className="text-2xl font-fredoka font-bold text-sunny-navy">Reset Password</DialogTitle>
@@ -624,13 +790,24 @@ export default function StudentsManagement() {
           <form onSubmit={handleResetPassword} className="space-y-4 mt-4">
             <div>
               <label className="block font-outfit font-medium text-gray-700 mb-2">New Password</label>
-              <Input
-                type="password"
-                value={passwordData.new_password}
-                onChange={(e) => setPasswordData({ new_password: e.target.value })}
-                required
-                data-testid="new-password-input"
-              />
+              <div className="relative">
+                <Input
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={passwordData.new_password}
+                  onChange={(e) => setPasswordData({ new_password: e.target.value })}
+                  required
+                  className="pr-10"
+                  data-testid="new-password-input"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                  aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showNewPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+                </button>
+              </div>
             </div>
             <Button
               type="submit"

@@ -8,6 +8,8 @@ import api from '@/utils/api';
 export default function FeePayment() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [feeDetails, setFeeDetails] = useState(null);
+  const [feeLoading, setFeeLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processing, setProcessing] = useState(false);
 
@@ -18,7 +20,21 @@ export default function FeePayment() {
   const fetchProfile = async () => {
     try {
       const response = await api.get('/student/profile');
-      setProfile(response.data);
+      const profileData = response.data;
+      setProfile(profileData);
+
+      setFeeLoading(true);
+      try {
+        const feeRes = await api.post('/fees/calculate', {
+          ...profileData,
+          frequency: 'monthly',
+        });
+        setFeeDetails(feeRes.data);
+      } catch (error) {
+        setFeeDetails(null);
+      } finally {
+        setFeeLoading(false);
+      }
     } catch (error) {
       toast.error('Failed to fetch profile');
     } finally {
@@ -27,7 +43,7 @@ export default function FeePayment() {
   };
 
   const handlePayNow = () => {
-    if (profile.fee_status === 'paid') {
+    if ((profile?.fee_status ?? 'pending') === 'paid') {
       toast.info('Fee already paid');
       return;
     }
@@ -41,9 +57,13 @@ export default function FeePayment() {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     try {
+      if (payableAmount <= 0) {
+        toast.error('Invalid payable amount');
+        return;
+      }
       const transactionId = `BOB${Date.now()}${Math.floor(Math.random() * 10000)}`;
       await api.post('/student/pay-fee', {
-        amount: profile.fee_amount,
+        amount: payableAmount,
         transaction_id: transactionId,
       });
       toast.success('Payment successful!');
@@ -60,6 +80,11 @@ export default function FeePayment() {
     return <div className="font-outfit">Loading...</div>;
   }
 
+  const feeAmount = Number(profile?.fee_amount ?? 0);
+  const feeStatus = profile?.fee_status ?? 'pending';
+  const payableAmount = Number(feeDetails?.total_fee ?? feeAmount);
+  const effectiveStatus = feeDetails?.message === 'Payment already exists' ? 'paid' : feeStatus;
+
   return (
     <div data-testid="fee-payment">
       <h1 className="text-4xl font-fredoka font-bold text-sunny-navy mb-8">Fee Payment</h1>
@@ -71,10 +96,12 @@ export default function FeePayment() {
             <div className="w-16 h-16 bg-sunny-yellow rounded-full flex items-center justify-center">
               <CreditCard className="w-8 h-8 text-sunny-navy" />
             </div>
-            <div>
-              <h2 className="text-2xl font-fredoka font-bold text-sunny-navy">Fee Details</h2>
-              <p className="font-outfit text-gray-600">Academic Year 2024-25</p>
-            </div>
+	            <div>
+	              <h2 className="text-2xl font-fredoka font-bold text-sunny-navy">Fee Details</h2>
+	              <p className="font-outfit text-gray-600">
+	                Academic Year {profile?.academic_year || '-'}
+	              </p>
+	            </div>
           </div>
 
           <div className="space-y-4">
@@ -90,35 +117,80 @@ export default function FeePayment() {
               <span className="font-outfit text-gray-600">Class</span>
               <span className="font-outfit font-semibold text-gray-900">{profile.class_name}-{profile.section}</span>
             </div>
-            <div className="flex justify-between items-center pb-4 border-b border-gray-200">
-              <span className="font-outfit text-gray-600">Total Fee Amount</span>
-              <span className="font-outfit font-bold text-2xl text-sunny-navy">
-                ₹{profile.fee_amount.toLocaleString()}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="font-outfit text-gray-600">Status</span>
-              <span
-                className={`px-4 py-2 rounded-full font-outfit font-semibold ${
-                  profile.fee_status === 'paid'
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-red-100 text-red-700'
-                }`}
-              >
-                {profile.fee_status === 'paid' ? 'Paid' : 'Pending'}
-              </span>
-            </div>
-          </div>
+		            <div className="flex justify-between items-center pb-4 border-b border-gray-200">
+		              <span className="font-outfit text-gray-600">Total Fee Amount</span>
+		              <span className="font-outfit font-bold text-2xl text-sunny-navy">
+		                ₹{payableAmount.toLocaleString()}
+		              </span>
+		            </div>
+	            <div className="flex justify-between items-center">
+	              <span className="font-outfit text-gray-600">Status</span>
+		              <span
+		                className={`px-4 py-2 rounded-full font-outfit font-semibold ${
+		                  effectiveStatus === 'paid'
+		                    ? 'bg-green-100 text-green-700'
+		                    : 'bg-red-100 text-red-700'
+		                }`}
+		              >
+		                {effectiveStatus === 'paid' ? 'Paid' : 'Pending'}
+		              </span>
+		            </div>
+	          </div>
 
-          {profile.fee_status !== 'paid' && (
-            <Button
-              onClick={handlePayNow}
-              className="w-full mt-8 bg-sunny-yellow text-sunny-navy font-bold rounded-full px-8 py-3 neo-brutal-shadow hover:bg-sunny-yellow text-lg"
-              data-testid="pay-now-button"
-            >
-              Pay Now
-            </Button>
-          )}
+	          <div className="mt-6 rounded-2xl border border-sunny-border bg-sunny-cream/40 p-5">
+	            <h3 className="font-fredoka font-bold text-sunny-navy mb-4">Fee Breakup</h3>
+	            {feeLoading ? (
+	              <p className="font-outfit text-sm text-gray-600">Calculating...</p>
+	            ) : feeDetails?.message === 'Payment already exists' ? (
+	              <p className="font-outfit text-sm text-gray-600">Payment already exists for this student.</p>
+	            ) : feeDetails ? (
+	              <div className="space-y-2 text-sm font-outfit">
+	                <div className="flex items-center justify-between text-gray-700">
+	                  <span>Admission Fee</span>
+	                  <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.admission_fee ?? 0).toLocaleString()}</span>
+	                </div>
+	                <div className="flex items-center justify-between text-gray-700">
+	                  <span>Annual Fee</span>
+	                  <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.annual_fee ?? 0).toLocaleString()}</span>
+	                </div>
+	                <div className="flex items-center justify-between text-gray-700">
+	                  <span>Tuition Fee</span>
+	                  <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.tuition_fee ?? 0).toLocaleString()}</span>
+	                </div>
+	                <div className="flex items-center justify-between text-gray-700">
+	                  <span>Bus Fee</span>
+	                  <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.bus_fee ?? 0).toLocaleString()}</span>
+	                </div>
+	                <div className="flex items-center justify-between text-gray-700">
+	                  <span>Caution Money</span>
+	                  <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.caution_money ?? 0).toLocaleString()}</span>
+	                </div>
+	                {Number(feeDetails.concession ?? 0) > 0 && (
+	                  <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-emerald-900">
+	                    <span className="font-semibold">Concession</span>
+	                    <span className="font-bold tabular-nums">- ₹{Number(feeDetails.concession ?? 0).toLocaleString()}</span>
+	                  </div>
+	                )}
+	                <div className="my-3 h-px bg-sunny-border" />
+	                <div className="flex items-center justify-between rounded-xl bg-sunny-navy px-4 py-3 text-white">
+	                  <span className="font-semibold">Total Pending</span>
+	                  <span className="text-lg font-bold tabular-nums">₹{Number(feeDetails.total_fee ?? 0).toLocaleString()}</span>
+	                </div>
+	              </div>
+	            ) : (
+	              <p className="font-outfit text-sm text-gray-600">Unable to calculate fee right now.</p>
+	            )}
+	          </div>
+
+		          {effectiveStatus !== 'paid' && (
+		            <Button
+		              onClick={handlePayNow}
+		              className="w-full mt-8 bg-sunny-yellow text-sunny-navy font-bold rounded-full px-8 py-3 neo-brutal-shadow hover:bg-sunny-yellow text-lg"
+		              data-testid="pay-now-button"
+		            >
+		              Pay Now
+		            </Button>
+		          )}
         </div>
 
         {/* Payment Method Card */}
@@ -155,8 +227,8 @@ export default function FeePayment() {
               </div>
             </div>
 
-            {profile.fee_status === 'paid' && (
-              <div className="bg-green-50 border border-green-200 rounded-xl p-6">
+		            {effectiveStatus === 'paid' && (
+		              <div className="bg-green-50 border border-green-200 rounded-xl p-6">
                 <div className="flex items-center space-x-3 mb-2">
                   <CheckCircle className="w-6 h-6 text-green-600" />
                   <h3 className="font-fredoka font-bold text-green-700">Payment Completed</h3>
@@ -177,13 +249,13 @@ export default function FeePayment() {
             <DialogTitle className="text-2xl font-fredoka font-bold text-sunny-navy">Confirm Payment</DialogTitle>
           </DialogHeader>
           <div className="space-y-6 mt-4">
-            <div className="bg-sunny-cream rounded-xl p-6">
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-outfit text-gray-600">Amount to Pay</span>
-                <span className="font-fredoka font-bold text-2xl text-sunny-navy">
-                  ₹{profile.fee_amount.toLocaleString()}
-                </span>
-              </div>
+	            <div className="bg-sunny-cream rounded-xl p-6">
+	              <div className="flex justify-between items-center mb-2">
+		                <span className="font-outfit text-gray-600">Amount to Pay</span>
+		                <span className="font-fredoka font-bold text-2xl text-sunny-navy">
+		                  ₹{payableAmount.toLocaleString()}
+		                </span>
+		              </div>
               <div className="flex justify-between items-center">
                 <span className="font-outfit text-gray-600">Payment Gateway</span>
                 <span className="font-outfit font-semibold text-gray-900">Bank of Baroda PayPoint</span>

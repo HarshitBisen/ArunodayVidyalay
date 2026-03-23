@@ -69,13 +69,13 @@ export default function ChangePassword() {
                 className="w-full border-2 border-sunny-border rounded-lg px-4 py-3 pr-12 focus:border-sunny-orange focus:ring-0 outline-none"
                 data-testid="old-password-input"
               />
-              <button
-                type="button"
-                onClick={() => togglePassword('old')}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                {showPasswords.old ? <EyeOff size={20} /> : <Eye size={20} />}
-              </button>
+	              <button
+	                type="button"
+	                onClick={() => togglePassword('old')}
+	                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+	              >
+	                {showPasswords.old ? <Eye size={20} /> : <EyeOff size={20} />}
+	              </button>
             </div>
           </div>
 
@@ -90,13 +90,13 @@ export default function ChangePassword() {
                 className="w-full border-2 border-sunny-border rounded-lg px-4 py-3 pr-12 focus:border-sunny-orange focus:ring-0 outline-none"
                 data-testid="new-password-input"
               />
-              <button
-                type="button"
-                onClick={() => togglePassword('new')}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                {showPasswords.new ? <EyeOff size={20} /> : <Eye size={20} />}
-              </button>
+	              <button
+	                type="button"
+	                onClick={() => togglePassword('new')}
+	                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+	              >
+	                {showPasswords.new ? <Eye size={20} /> : <EyeOff size={20} />}
+	              </button>
             </div>
             <p className="font-outfit text-sm text-gray-500 mt-1">Must be at least 6 characters</p>
           </div>
@@ -112,13 +112,13 @@ export default function ChangePassword() {
                 className="w-full border-2 border-sunny-border rounded-lg px-4 py-3 pr-12 focus:border-sunny-orange focus:ring-0 outline-none"
                 data-testid="confirm-password-input"
               />
-              <button
-                type="button"
-                onClick={() => togglePassword('confirm')}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-              >
-                {showPasswords.confirm ? <EyeOff size={20} /> : <Eye size={20} />}
-              </button>
+	              <button
+	                type="button"
+	                onClick={() => togglePassword('confirm')}
+	                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+	              >
+	                {showPasswords.confirm ? <Eye size={20} /> : <EyeOff size={20} />}
+	              </button>
             </div>
           </div>
 
