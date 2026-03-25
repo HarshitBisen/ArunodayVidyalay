@@ -5,8 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import re
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, model_validator
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -83,6 +84,17 @@ class StudentCreate(BaseModel):
     distance_school: Optional[float] = Field(default=None, ge=0)
     academic_year: str
 
+    @model_validator(mode="after")
+    def validate_bus_fields(self):
+        bus_opted = str(self.bus_opted or "").strip().lower()
+        pickup = str(self.pickup_location or "").strip()
+        if bus_opted == "yes":
+            if not pickup:
+                raise ValueError("pickup_location is required when bus_opted is yes")
+            if self.distance_school is None:
+                raise ValueError("distance_school is required when bus_opted is yes")
+        return self
+
 class StudentUpdate(BaseModel):
     roll_number: Optional[str] = None
     email: Optional[EmailStr] = None
@@ -128,6 +140,8 @@ class ConcessionStatusResponse(BaseModel):
     applied: bool
     percent: Optional[int] = None
     reason: Optional[str] = None
+    applied_by: Optional[dict] = None
+    applied_at: Optional[str] = None
     locked: bool = False
     year: Optional[int] = None
 
@@ -148,6 +162,22 @@ class PasswordResetRequest(BaseModel):
     student_id: str
     new_password: str
 
+class AdminCreateRequest(BaseModel):
+    email: EmailStr
+    name: str
+    password: str = Field(..., min_length=6)
+
+class AdminPasswordResetRequest(BaseModel):
+    new_password: str = Field(..., min_length=6)
+
+class AdminPublicResponse(BaseModel):
+    id: str
+    email: EmailStr
+    name: Optional[str] = None
+    is_super_admin: bool = False
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
 class FeePayment(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -156,6 +186,7 @@ class FeePayment(BaseModel):
     payment_method: str = "Bank of Baroda PayPoint"
     transaction_id: str
     status: str = "success"
+    paid_for_month: Optional[str] = None  # YYYY-MM
     breakup: Optional[dict] = None
     paid_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -204,6 +235,12 @@ async def get_admin_user(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
+async def require_super_admin(current_user: dict = Depends(get_admin_user)):
+    admin = await db.admins.find_one({"id": current_user["user_id"]}, {"_id": 0, "is_super_admin": 1})
+    if not admin or not bool(admin.get("is_super_admin")):
+        raise HTTPException(status_code=403, detail="Super admin access required")
+    return current_user
+
 def set_auth_cookie(response: Response, token: str) -> None:
     cookie_secure = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
     cookie_samesite = os.environ.get("COOKIE_SAMESITE", "lax")
@@ -222,35 +259,65 @@ async def startup_event():
         logger.warning("ADMIN_EMAIL or ADMIN_PASSWORD is missing; skipping bootstrap admin creation.")
         return
 
-    existing_admin = await db.admins.find_one({"email": ADMIN_EMAIL}, {"_id": 0})
+    bootstrap_email_raw = str(ADMIN_EMAIL).strip()
+    bootstrap_email = bootstrap_email_raw.lower()
+    existing_admin = await db.admins.find_one(
+        {"email": {"$regex": f"^{re.escape(bootstrap_email_raw)}$", "$options": "i"}},
+        {"_id": 0},
+    )
     if not existing_admin:
         admin_data = {
             "id": str(uuid.uuid4()),
-            "email": ADMIN_EMAIL,
+            "email": bootstrap_email,
             "password_hash": hash_password(ADMIN_PASSWORD),
             "name": ADMIN_NAME,
+            "is_super_admin": True,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.admins.insert_one(admin_data)
         logger.info("Bootstrap admin user created from environment configuration.")
+    else:
+        # Ensure the bootstrap admin is always a super admin.
+        update_fields = {}
+        if existing_admin.get("email") != bootstrap_email:
+            update_fields["email"] = bootstrap_email
+        if not bool(existing_admin.get("is_super_admin")):
+            update_fields["is_super_admin"] = True
+        if update_fields:
+            await db.admins.update_one(
+                {"id": existing_admin.get("id")},
+                {"$set": {**update_fields, "updated_at": datetime.now(timezone.utc).isoformat()}},
+            )
 
 # Routes
 @api_router.post("/auth/login", response_model=LoginResponse)
 async def login(request: LoginRequest, response: Response):
     # Check if admin
-    admin = await db.admins.find_one({"email": request.email}, {"_id": 0})
+    email_in = str(request.email).strip()
+    admin = await db.admins.find_one(
+        {"email": {"$regex": f"^{re.escape(email_in)}$", "$options": "i"}},
+        {"_id": 0},
+    )
     if admin and verify_password(request.password, admin['password_hash']):
         token = create_jwt_token(admin['id'], 'admin')
         set_auth_cookie(response, token)
 
         return LoginResponse(
             user_type="admin",
-            user={'id': admin['id'], 'email': admin['email'], 'name': admin['name']}
+            user={
+                'id': admin['id'],
+                'email': admin.get('email') or email_in,
+                'name': admin.get('name'),
+                'is_super_admin': bool(admin.get('is_super_admin')),
+            }
         )
 
     
     # Check if student
-    student = await db.students.find_one({"email": request.email}, {"_id": 0})
+    student = await db.students.find_one(
+        {"email": {"$regex": f"^{re.escape(email_in)}$", "$options": "i"}},
+        {"_id": 0},
+    )
     if student and verify_password(request.password, student['password_hash']):
         token = create_jwt_token(student['id'], 'student')
         set_auth_cookie(response, token)
@@ -279,9 +346,64 @@ async def logout(response: Response):
     return {"message": "Logged out successfully"}
 
 # Admin routes
+@api_router.get("/admin/admins", response_model=List[AdminPublicResponse])
+async def list_admins(current_user: dict = Depends(get_admin_user)):
+    admins = await db.admins.find({}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    for a in admins:
+        a["created_at"] = a["created_at"].isoformat() if isinstance(a.get("created_at"), datetime) else a.get("created_at")
+        a["updated_at"] = a["updated_at"].isoformat() if isinstance(a.get("updated_at"), datetime) else a.get("updated_at")
+    return admins
+
+@api_router.post("/admin/admins", response_model=AdminPublicResponse)
+async def create_admin(request: AdminCreateRequest, current_user: dict = Depends(require_super_admin)):
+    email_norm = str(request.email).strip().lower()
+    existing = await db.admins.find_one(
+        {"email": {"$regex": f"^{re.escape(email_norm)}$", "$options": "i"}},
+        {"_id": 0, "id": 1},
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="Admin with this email already exists")
+
+    now = datetime.now(timezone.utc).isoformat()
+    admin_doc = {
+        "id": str(uuid.uuid4()),
+        "email": email_norm,
+        "name": request.name,
+        "is_super_admin": False,
+        "password_hash": hash_password(request.password),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.admins.insert_one(admin_doc)
+    admin_doc.pop("password_hash", None)
+    return admin_doc
+
+@api_router.post("/admin/admins/{admin_id}/reset-password")
+async def reset_admin_password(admin_id: str, request: AdminPasswordResetRequest, current_user: dict = Depends(require_super_admin)):
+    admin = await db.admins.find_one({"id": admin_id}, {"_id": 0, "id": 1})
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin not found")
+
+    await db.admins.update_one(
+        {"id": admin_id},
+        {"$set": {"password_hash": hash_password(request.new_password), "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": "Admin password updated"}
+
 @api_router.get("/admin/students", response_model=List[StudentResponse])
-async def get_all_students(current_user: dict = Depends(get_admin_user)):
-    students = await db.students.find({}, {"_id": 0}).to_list(1000)
+async def get_all_students(unpaid_fees: bool = False, current_user: dict = Depends(get_admin_user)):
+    query = {}
+    if unpaid_fees:
+        current_month = month_key(datetime.now(timezone.utc))
+        payments = await db.payments.find(
+            payment_month_match_query(current_month),
+            {"_id": 0, "student_id": 1},
+        ).to_list(5000)
+        paid_student_ids = {p.get("student_id") for p in payments if p.get("student_id")}
+        if paid_student_ids:
+            query = {"id": {"$nin": list(paid_student_ids)}}
+
+    students = await db.students.find(query, {"_id": 0}).to_list(1000)
     for student in students:
         student['created_at'] = student['created_at'].isoformat() if isinstance(student['created_at'], datetime) else student['created_at']
         student['updated_at'] = student['updated_at'].isoformat() if isinstance(student['updated_at'], datetime) else student['updated_at']
@@ -358,6 +480,16 @@ async def update_student(student_id: str, student_data: StudentUpdate, current_u
     if "academic_year" in update_data:
         if not update_data["academic_year"] or not str(update_data["academic_year"]).strip():
             raise HTTPException(status_code=400, detail="Academic year is required")
+
+    # If bus service is opted (either already or being updated to yes), pickup location and distance are mandatory.
+    merged = {**student, **update_data}
+    bus_opted = str(merged.get("bus_opted") or "").strip().lower()
+    if bus_opted == "yes":
+        pickup = str(merged.get("pickup_location") or "").strip()
+        if not pickup:
+            raise HTTPException(status_code=400, detail="Pickup location is required when bus service is opted")
+        if merged.get("distance_school") is None:
+            raise HTTPException(status_code=400, detail="Distance from school is required when bus service is opted")
     if update_data:
         update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
         await db.students.update_one({"id": student_id}, {"$set": update_data})
@@ -401,6 +533,8 @@ async def get_student_concession(student_id: str, current_user: dict = Depends(g
         applied=True,
         percent=int(concession["percent"]),
         reason=concession.get("reason"),
+        applied_by=concession.get("applied_by"),
+        applied_at=concession.get("applied_at"),
         locked=bool(concession_year == now_year),
         year=concession_year,
     )
@@ -432,6 +566,11 @@ async def upsert_student_concession(
         raise HTTPException(status_code=400, detail="Concession already applied for this year and cannot be changed")
 
     now = datetime.now(timezone.utc).isoformat()
+    admin = await db.admins.find_one({"id": current_user["user_id"]}, {"_id": 0, "id": 1, "name": 1, "email": 1})
+    applied_by = None
+    if admin:
+        applied_by = {"admin_id": admin.get("id"), "name": admin.get("name"), "email": admin.get("email")}
+
     await db.concessions.update_one(
         {"student_id": student_id},
         {
@@ -440,6 +579,8 @@ async def upsert_student_concession(
                 "percent": int(payload.percent),
                 "reason": (reason or None),
                 "year": now_year,
+                "applied_by": applied_by,
+                "applied_at": now,
                 "updated_at": now,
             },
             "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": now},
@@ -451,6 +592,8 @@ async def upsert_student_concession(
         applied=True,
         percent=int(payload.percent),
         reason=(reason or None),
+        applied_by=applied_by,
+        applied_at=now,
         locked=True,
         year=now_year,
     )
@@ -495,6 +638,14 @@ async def get_student_profile(current_user: dict = Depends(get_current_user)):
         except Exception:
             created_dt = datetime.now(timezone.utc)
         student["academic_year"] = academic_year_for(created_dt)
+
+    # Month-based fee status: paid only if a payment exists for the current month.
+    current_month = month_key(datetime.now(timezone.utc))
+    payment = await db.payments.find_one(
+        {"student_id": current_user['user_id'], **payment_month_match_query(current_month)},
+        {"_id": 0, "id": 1},
+    )
+    student["fee_status"] = "paid" if payment else "pending"
     return StudentResponse(**student)
 
 @api_router.post("/student/change-password")
@@ -525,12 +676,15 @@ async def pay_fee(payment_data: FeePaymentCreate, current_user: dict = Depends(g
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
-    if student.get('fee_status') == 'paid':
-        raise HTTPException(status_code=400, detail="Fee already paid")
-
-    existing_payment = await db.payments.find_one({"student_id": current_user['user_id']}, {"_id": 0})
+    # Month-based payment: allow paying again in future months, but block duplicates in the same month.
+    now = datetime.now(timezone.utc)
+    current_month = month_key(now)
+    existing_payment = await db.payments.find_one(
+        {"student_id": current_user["user_id"], **payment_month_match_query(current_month)},
+        {"_id": 0, "id": 1},
+    )
     if existing_payment:
-        raise HTTPException(status_code=400, detail="Payment already exists")
+        raise HTTPException(status_code=400, detail="Fee already paid for this month")
 
     fee = await build_fee_breakup(student, current_user["user_id"])
     payable = float(fee.get("total_fee") or 0)
@@ -544,6 +698,7 @@ async def pay_fee(payment_data: FeePaymentCreate, current_user: dict = Depends(g
         student_id=current_user['user_id'],
         amount=payable,
         transaction_id=payment_data.transaction_id,
+        paid_for_month=current_month,
         breakup=fee.get("breakup"),
     )
     
@@ -551,9 +706,10 @@ async def pay_fee(payment_data: FeePaymentCreate, current_user: dict = Depends(g
     doc['paid_at'] = doc['paid_at'].isoformat()
     
     await db.payments.insert_one(doc)
+    # Don't persist a sticky fee_status; fee status is month-based and computed from payments.
     await db.students.update_one(
-        {"id": current_user['user_id']},
-        {"$set": {"fee_status": "paid", "updated_at": datetime.now(timezone.utc).isoformat()}}
+        {"id": current_user["user_id"]},
+        {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     
     return {"message": "Fee payment successful", "payment_id": payment.id, "breakup": fee.get("breakup")}
@@ -619,6 +775,64 @@ def academic_year_for(date_to_check: datetime) -> str:
         start_year = year - 1
         end_year = year
     return f"{start_year}-{str(end_year)[-2:]}"
+
+def academic_year_start(academic_year: Optional[str]) -> Optional[datetime]:
+    if not academic_year:
+        return None
+    try:
+        start_year = int(str(academic_year).split("-")[0])
+    except Exception:
+        return None
+    return datetime(start_year, 4, 1, tzinfo=timezone.utc)
+
+def month_start(dt: datetime) -> datetime:
+    return datetime(dt.year, dt.month, 1, tzinfo=dt.tzinfo or timezone.utc)
+
+def month_key(dt: datetime) -> str:
+    return f"{dt.year:04d}-{dt.month:02d}"
+
+def payment_month_match_query(month: str) -> dict:
+    # Supports:
+    # - New docs: explicit paid_for_month="YYYY-MM"
+    # - Older docs: paid_at stored as an ISO string (prefix match)
+    # - Some older docs: paid_at stored as a datetime (range match)
+    start = end = None
+    try:
+        y, m = month.split("-", 1)
+        year = int(y)
+        mon = int(m)
+        start = datetime(year, mon, 1, tzinfo=timezone.utc)
+        end = datetime(year + (1 if mon == 12 else 0), 1 if mon == 12 else mon + 1, 1, tzinfo=timezone.utc)
+    except Exception:
+        pass
+
+    ors = [
+        {"paid_for_month": month},
+        {"paid_for_month": {"$exists": False}, "paid_at": {"$regex": f"^{month}"}},
+    ]
+    if start and end:
+        ors.append({"paid_for_month": {"$exists": False}, "paid_at": {"$gte": start, "$lt": end}})
+
+    return {"$or": ors}
+
+def months_between(a: datetime, b: datetime) -> int:
+    # Number of whole month boundaries between a and b (both expected at month starts).
+    return (b.year - a.year) * 12 + (b.month - a.month)
+
+def calculate_late_fee(base_due_date: datetime, now: datetime) -> float:
+    # Rules:
+    # - If not paid till 10th of the current month: +50.
+    # - For each fully missed month before the current month: +100 per month.
+    base_month = month_start(base_due_date)
+    current_month = month_start(now)
+    if current_month < base_month:
+        return 0.0
+
+    missed_full_months = max(0, months_between(base_month, current_month))
+    late_fee = missed_full_months * 100.0
+    if now.day > 10:
+        late_fee += 50.0
+    return late_fee
 
 async def build_fee_breakup(student: dict, student_id: str) -> dict:
     admission = 0
@@ -687,6 +901,15 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
 
     total += bus_fee
 
+    # Late fee: monthly fine based on current date when unpaid.
+    now = datetime.now(timezone.utc)
+    due_start = academic_year_start(student.get("academic_year")) or created_at
+    # If student joined mid-year, start counting from their join month.
+    if due_start < created_at:
+        due_start = created_at
+    late_fee = calculate_late_fee(due_start, now)
+    total += late_fee
+
     try:
         if int(class_name) >= 6:
             caution = 1000
@@ -697,6 +920,7 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     concession = await db.concessions.find_one({"student_id": student_id}, {"_id": 0})
     concession_amount = 0.0
     concession_percent = 0.0
+    concession_meta = None
     if concession:
         if concession.get("percent") is not None:
             concession_percent = float(concession.get("percent") or 0)
@@ -710,11 +934,18 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
         "annual_fee": float(annual),
         "tuition_fee": float(tuition),
         "bus_fee": float(bus_fee),
+        "late_fee": float(late_fee),
         "caution_money": float(caution),
     }
     subs_items = {}
     if concession_amount:
         subs_items["concession"] = float(concession_amount)
+        concession_meta = {
+            "percent": float(concession_percent or 0),
+            "reason": concession.get("reason") if concession else None,
+            "applied_by": concession.get("applied_by") if concession else None,
+            "applied_at": concession.get("applied_at") if concession else None,
+        }
 
     total_fee = round(sum(sum_items.values()) - sum(subs_items.values()), 2)
 
@@ -724,6 +955,7 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
         "bus_fee": bus_fee,
         "annual_fee": annual,
         "admission_fee": admission,
+        "late_fee": late_fee,
         "caution_money": caution,
         "concession": concession_amount,
         "concession_percent": concession_percent or None,
@@ -732,6 +964,7 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
             "sum": sum_items,
             "subs": subs_items,
             "total": total_fee,
+            "meta": {"concession": concession_meta} if concession_meta else {},
         },
     }
 
@@ -743,8 +976,12 @@ async def calculate_fee(student: dict):
     if not student_id:
         raise HTTPException(status_code=400, detail="Missing student id")
 
-    # -------- Check existing payment --------
-    payment = await db.payments.find_one({"student_id": student_id}, {"_id": 0})
+    # -------- Check existing payment (current month) --------
+    current_month = month_key(datetime.now(timezone.utc))
+    payment = await db.payments.find_one(
+        {"student_id": student_id, **payment_month_match_query(current_month)},
+        {"_id": 0},
+    )
 
     if payment:
         if isinstance(payment.get("paid_at"), datetime):

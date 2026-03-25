@@ -16,23 +16,26 @@ export default function FeesManagement() {
 	    const [showConcessionModal, setShowConcessionModal] = useState(false);
 	    const [concessionStudent, setConcessionStudent] = useState(null);
 	    const [concessionApplied, setConcessionApplied] = useState('no');
-	    const [concessionPercent, setConcessionPercent] = useState('25');
-	    const [concessionReason, setConcessionReason] = useState('sibling');
-	    const [concessionLoading, setConcessionLoading] = useState(false);
-	    const [concessionSaving, setConcessionSaving] = useState(false);
-	    const [concessionLocked, setConcessionLocked] = useState(false);
+		    const [concessionPercent, setConcessionPercent] = useState('25');
+		    const [concessionReason, setConcessionReason] = useState('sibling');
+		    const [concessionLoading, setConcessionLoading] = useState(false);
+		    const [concessionSaving, setConcessionSaving] = useState(false);
+		    const [concessionLocked, setConcessionLocked] = useState(false);
+		    const [concessionAppliedBy, setConcessionAppliedBy] = useState(null);
+		    const [concessionAppliedAt, setConcessionAppliedAt] = useState(null);
 
 	     useEffect(() => {
 	        fetchStudents();
 	      }, []);
 
-    const fetchStudents = async () => {
-        try {
-          const response = await api.get('/admin/students');
-          setStudents(response.data);
-        } catch (error) {
-          toast.error('Failed to fetch students');
-        } finally {
+	    const fetchStudents = async () => {
+	        try {
+	          // Only show students who haven't paid for the current month.
+	          const response = await api.get('/admin/students?unpaid_fees=true');
+	          setStudents(response.data);
+	        } catch (error) {
+	          toast.error('Failed to fetch students');
+	        } finally {
           setLoading(false);
         }
       };
@@ -50,28 +53,32 @@ export default function FeesManagement() {
 	        }
 	      };
 
-	      const openEditModal = async (student) => {
-	        setConcessionStudent(student);
-	        setConcessionApplied('no');
-	        setConcessionPercent('25');
-	        setConcessionReason('sibling');
-	        setConcessionLocked(false);
-	        setShowConcessionModal(true);
-	        setConcessionLoading(true);
-	        try {
-	          const res = await api.get(`/admin/students/${student.id}/concession`);
-	          if (res.data?.applied) {
-	            setConcessionApplied('yes');
-	            setConcessionPercent(String(res.data.percent ?? 25));
-	            setConcessionReason(String(res.data.reason ?? 'sibling'));
-	            setConcessionLocked(Boolean(res.data.locked));
-	          }
-	        } catch (error) {
-	          // Ignore; default state is "no concession"
-	        } finally {
-	          setConcessionLoading(false);
-	        }
-	      };
+		      const openEditModal = async (student) => {
+		        setConcessionStudent(student);
+		        setConcessionApplied('no');
+		        setConcessionPercent('25');
+		        setConcessionReason('sibling');
+		        setConcessionLocked(false);
+		        setConcessionAppliedBy(null);
+		        setConcessionAppliedAt(null);
+		        setShowConcessionModal(true);
+		        setConcessionLoading(true);
+		        try {
+		          const res = await api.get(`/admin/students/${student.id}/concession`);
+		          if (res.data?.applied) {
+		            setConcessionApplied('yes');
+		            setConcessionPercent(String(res.data.percent ?? 25));
+		            setConcessionReason(String(res.data.reason ?? 'sibling'));
+		            setConcessionLocked(Boolean(res.data.locked));
+		            setConcessionAppliedBy(res.data.applied_by ?? null);
+		            setConcessionAppliedAt(res.data.applied_at ?? null);
+		          }
+		        } catch (error) {
+		          // Ignore; default state is "no concession"
+		        } finally {
+		          setConcessionLoading(false);
+		        }
+		      };
 
 	      const saveConcession = async () => {
 	        if (!concessionStudent) return;
@@ -249,11 +256,24 @@ export default function FeesManagement() {
 	                      </div>
 	                    </div>
 	                  )}
-	                  {concessionLocked && (
-	                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-outfit text-amber-800">
-	                      Concession is already applied for this year.
-	                    </div>
-	                  )}
+		                  {concessionLocked && (
+		                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-outfit text-amber-800">
+		                      <div className="font-semibold">Concession is already applied for this year.</div>
+		                      {(concessionAppliedBy?.name || concessionAppliedBy?.email || concessionAppliedAt) && (
+		                        <div className="mt-1 text-xs opacity-90">
+		                          {concessionAppliedBy?.name || concessionAppliedBy?.email ? (
+		                            <span>Applied by {concessionAppliedBy?.name || concessionAppliedBy?.email}</span>
+		                          ) : null}
+		                          {concessionAppliedAt ? (
+		                            <span>
+		                              {(concessionAppliedBy?.name || concessionAppliedBy?.email) ? ' on ' : 'Applied on '}
+		                              {new Date(concessionAppliedAt).toLocaleString()}
+		                            </span>
+		                          ) : null}
+		                        </div>
+		                      )}
+		                    </div>
+		                  )}
 	                </div>
 
 	                <DialogFooter className="mt-2">
@@ -327,12 +347,25 @@ export default function FeesManagement() {
 		                            </span>
 		                          </div>
 
-		                          {"concession" in feeDetails && (
-		                            <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 font-outfit text-emerald-900">
-		                              <span className="font-semibold">Concession</span>
-		                              <span className="font-bold tabular-nums">- ₹{feeDetails.concession}</span>
-		                            </div>
-		                          )}
+			                          {"concession" in feeDetails && (
+			                            <div>
+			                              <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 font-outfit text-emerald-900">
+			                                <span className="font-semibold">Concession</span>
+			                                <span className="font-bold tabular-nums">- ₹{feeDetails.concession}</span>
+			                              </div>
+			                              {feeDetails?.breakup?.meta?.concession?.applied_by && (
+			                                <div className="mt-1 px-1 text-xs font-outfit text-emerald-900/80">
+			                                  Applied by{' '}
+			                                  {feeDetails.breakup.meta.concession.applied_by?.name ||
+			                                    feeDetails.breakup.meta.concession.applied_by?.email ||
+			                                    '—'}
+			                                  {feeDetails?.breakup?.meta?.concession?.applied_at
+			                                    ? ` on ${new Date(feeDetails.breakup.meta.concession.applied_at).toLocaleString()}`
+			                                    : ''}
+			                                </div>
+			                              )}
+			                            </div>
+			                          )}
 		                        </div>
 
 		                        <div className="my-5 h-px bg-gray-100" />

@@ -34,6 +34,7 @@ export default function StudentsManagement() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showStudentPassword, setShowStudentPassword] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [formData, setFormData] = useState({
     enrollment_number:'',
@@ -52,8 +53,8 @@ export default function StudentsManagement() {
 	    distance_school:'',
 	    new_student: '',
 	    academic_year: getCurrentAcademicYear(),
-	  });
-	  const [passwordData, setPasswordData] = useState({ new_password: '' });
+		  });
+		  const [passwordData, setPasswordData] = useState({ new_password: '' });
 
   useEffect(() => {
     fetchStudents();
@@ -275,17 +276,28 @@ export default function StudentsManagement() {
                     data-testid="add-email"
                   />
                 </div>
-                <div>
-	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Password *</label>
-	                  <Input
-	                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
-	                    type="password"
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    required
-                    data-testid="add-password"
-                  />
-                </div>
+	                <div>
+		                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Password *</label>
+		                  <div className="relative">
+			                  <Input
+			                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40 pr-12"
+			                    type={showStudentPassword ? 'text' : 'password'}
+		                      value={formData.password}
+		                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+		                      required
+		                      data-testid="add-password"
+		                    />
+		                    <button
+		                      type="button"
+		                      onClick={() => setShowStudentPassword((v) => !v)}
+		                      className="absolute inset-y-0 right-2 flex items-center justify-center rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+		                      aria-label={showStudentPassword ? 'Hide password' : 'Show password'}
+		                      data-testid="add-password-toggle"
+		                    >
+		                      {showStudentPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+		                    </button>
+		                  </div>
+	                </div>
 	                <div>
 	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
 	                    Class *
@@ -457,14 +469,15 @@ export default function StudentsManagement() {
 		                      <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
 		                        Pickup Location
 		                      </label>
-		                      <Input
-		                        className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
-		                        value={formData.pickup_location}
-		                        onChange={(e) =>
-		                          setFormData({ ...formData, pickup_location: e.target.value })
-		                        }
-		                        disabled={formData.bus_opted !== "yes"}
-		                      />
+			                      <Input
+			                        className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+			                        value={formData.pickup_location}
+			                        onChange={(e) =>
+			                          setFormData({ ...formData, pickup_location: e.target.value })
+			                        }
+			                        disabled={formData.bus_opted !== "yes"}
+			                        required={formData.bus_opted === "yes"}
+			                      />
 		                    </div>
 		                    <div>
 		                      <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
@@ -729,14 +742,15 @@ export default function StudentsManagement() {
 		                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
 		                      Pickup Location
 		                    </label>
-		                    <Input
-		                      className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
-		                      value={formData.pickup_location}
-		                      onChange={(e) =>
-		                        setFormData({ ...formData, pickup_location: e.target.value })
-		                      }
-		                      disabled={formData.bus_opted !== "yes"}
-		                    />
+			                    <Input
+			                      className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
+			                      value={formData.pickup_location}
+			                      onChange={(e) =>
+			                        setFormData({ ...formData, pickup_location: e.target.value })
+			                      }
+			                      disabled={formData.bus_opted !== "yes"}
+			                      required={formData.bus_opted === "yes"}
+			                    />
 		                  </div>
 		                  <div>
 		                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">

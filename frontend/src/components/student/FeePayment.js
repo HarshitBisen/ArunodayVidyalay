@@ -161,6 +161,12 @@ export default function FeePayment() {
 	                  <span>Bus Fee</span>
 	                  <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.bus_fee ?? 0).toLocaleString()}</span>
 	                </div>
+	                {Number(feeDetails.late_fee ?? 0) > 0 && (
+	                  <div className="flex items-center justify-between text-gray-700">
+	                    <span>Late Fee</span>
+	                    <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.late_fee ?? 0).toLocaleString()}</span>
+	                  </div>
+	                )}
 	                <div className="flex items-center justify-between text-gray-700">
 	                  <span>Caution Money</span>
 	                  <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.caution_money ?? 0).toLocaleString()}</span>

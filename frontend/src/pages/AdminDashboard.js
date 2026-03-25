@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Users, LogOut, GraduationCap, CreditCard, Home } from 'lucide-react';
+import { Users, LogOut, GraduationCap, CreditCard, Home, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import { getUser, logout } from '@/utils/auth';
 import api from '@/utils/api';
@@ -8,6 +8,7 @@ import StudentsManagement from '@/components/admin/StudentsManagement';
 import PaymentsView from '@/components/admin/PaymentsView';
 import AdminOverview from '@/components/admin/AdminOverview';
 import FeesManagement from '@/components/admin/FeesManagement';
+import AdminsView from '@/components/admin/AdminsView';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -82,6 +83,14 @@ export default function AdminDashboard() {
               <CreditCard size={20} />
               <span className="font-outfit">Fees</span>
             </Link>
+            <Link
+              to="/admin/admins"
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-10 transition-colors"
+              data-testid="admin-nav-admins"
+            >
+              <Shield size={20} />
+              <span className="font-outfit">Admins</span>
+            </Link>
           </nav>
 
           <button
@@ -102,6 +111,7 @@ export default function AdminDashboard() {
           <Route path="students" element={<StudentsManagement />} />
           <Route path="payments" element={<PaymentsView />} />
           <Route path="fees" element={<FeesManagement />} />
+          <Route path="admins" element={<AdminsView />} />
         </Routes>
       </div>
     </div>
