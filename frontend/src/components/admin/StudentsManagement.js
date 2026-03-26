@@ -37,7 +37,6 @@ export default function StudentsManagement() {
   const [showStudentPassword, setShowStudentPassword] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [formData, setFormData] = useState({
-    enrollment_number:'',
     roll_number: '',
     name: '',
     email: '',
@@ -75,6 +74,7 @@ export default function StudentsManagement() {
     e.preventDefault();
   
     const payload = { ...formData };
+    delete payload.enrollment_number;
   
     // Convert empty email to null
     if (!payload.email || payload.email.trim() === '') {
@@ -181,7 +181,6 @@ export default function StudentsManagement() {
 
   const resetForm = () => {
     setFormData({
-      enrollment_number:'',
       roll_number: '',
       name: '',
       email: '',
@@ -235,16 +234,14 @@ export default function StudentsManagement() {
 	                </div>
 		                <div className="grid md:grid-cols-2 gap-4">
 		                  <div>
-		                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Enrollment Number *</label>
+		                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Enrollment Number</label>
 		                    <Input
 		                      className="w-full bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40"
-		                      value={formData.enrollment_number}
-		                      onChange={(e) =>
-		                        setFormData({ ...formData, enrollment_number: e.target.value })
-		                      }
-		                      required
+		                      value="Auto generated"
+		                      disabled
 		                      data-testid="add-enrollment-number"
 		                    />
+                        <p className="mt-1 font-outfit text-xs text-gray-500">Generated automatically in `AV001` format.</p>
 		                  </div>
 
 		                  <div>
@@ -521,7 +518,7 @@ export default function StudentsManagement() {
           <table className="w-full">
             <thead className="bg-gray-50">
 	              <tr>
-	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Roll No</th>
+	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Enrollment No</th>
 	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Name</th>
 	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Email</th>
 	                <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Class</th>
@@ -532,7 +529,7 @@ export default function StudentsManagement() {
             <tbody>
               {students.map((student) => (
                 <tr key={student.id} className="border-t hover:bg-gray-50">
-                  <td className="font-outfit text-gray-900 py-3 px-4">{student.roll_number}</td>
+                  <td className="font-outfit text-gray-900 py-3 px-4">{student.enrollment_number}</td>
                   <td className="font-outfit text-gray-900 py-3 px-4">{student.name}</td>
                   <td className="font-outfit text-gray-600 py-3 px-4">{student.email}</td>
 	                  <td className="font-outfit text-gray-900 py-3 px-4">
