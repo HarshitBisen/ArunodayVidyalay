@@ -67,7 +67,7 @@ class Student(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class StudentCreate(BaseModel):
-    enrollment_number: str
+    enrollment_number: Optional[str] = None
     roll_number: str
     name: str
     email: Optional[EmailStr] = None
@@ -207,6 +207,48 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
+ENROLLMENT_PREFIX = "AV"
+ENROLLMENT_COUNTER_ID = "student_enrollment"
+
+async def get_max_enrollment_sequence() -> int:
+    students = await db.students.find(
+        {"enrollment_number": {"$regex": rf"^{ENROLLMENT_PREFIX}\d+$"}},
+        {"_id": 0, "enrollment_number": 1},
+    ).to_list(10000)
+
+    max_sequence = 0
+    for student in students:
+        enrollment_number = str(student.get("enrollment_number") or "").strip().upper()
+        match = re.fullmatch(rf"{ENROLLMENT_PREFIX}(\d+)", enrollment_number)
+        if match:
+            max_sequence = max(max_sequence, int(match.group(1)))
+    return max_sequence
+
+async def generate_enrollment_number() -> str:
+    max_existing_sequence = await get_max_enrollment_sequence()
+    await db.counters.update_one(
+        {"_id": ENROLLMENT_COUNTER_ID},
+        {"$max": {"seq": max_existing_sequence}},
+        upsert=True,
+    )
+
+    for _ in range(10):
+        counter = await db.counters.find_one_and_update(
+            {"_id": ENROLLMENT_COUNTER_ID},
+            {"$inc": {"seq": 1}},
+            return_document=ReturnDocument.AFTER,
+        )
+        sequence = int(counter.get("seq", 0))
+        enrollment_number = f"{ENROLLMENT_PREFIX}{sequence:03d}"
+        existing_student = await db.students.find_one(
+            {"enrollment_number": enrollment_number},
+            {"_id": 1},
+        )
+        if not existing_student:
+            return enrollment_number
+
+    raise HTTPException(status_code=500, detail="Failed to generate unique enrollment number")
+
 def create_jwt_token(user_id: str, user_type: str) -> str:
     payload = {
         'user_id': user_id,
@@ -257,37 +299,41 @@ def set_auth_cookie(response: Response, token: str) -> None:
 async def startup_event():
     if not ADMIN_EMAIL or not ADMIN_PASSWORD:
         logger.warning("ADMIN_EMAIL or ADMIN_PASSWORD is missing; skipping bootstrap admin creation.")
-        return
-
-    bootstrap_email_raw = str(ADMIN_EMAIL).strip()
-    bootstrap_email = bootstrap_email_raw.lower()
-    existing_admin = await db.admins.find_one(
-        {"email": {"$regex": f"^{re.escape(bootstrap_email_raw)}$", "$options": "i"}},
-        {"_id": 0},
-    )
-    if not existing_admin:
-        admin_data = {
-            "id": str(uuid.uuid4()),
-            "email": bootstrap_email,
-            "password_hash": hash_password(ADMIN_PASSWORD),
-            "name": ADMIN_NAME,
-            "is_super_admin": True,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.admins.insert_one(admin_data)
-        logger.info("Bootstrap admin user created from environment configuration.")
     else:
-        # Ensure the bootstrap admin is always a super admin.
-        update_fields = {}
-        if existing_admin.get("email") != bootstrap_email:
-            update_fields["email"] = bootstrap_email
-        if not bool(existing_admin.get("is_super_admin")):
-            update_fields["is_super_admin"] = True
-        if update_fields:
-            await db.admins.update_one(
-                {"id": existing_admin.get("id")},
-                {"$set": {**update_fields, "updated_at": datetime.now(timezone.utc).isoformat()}},
-            )
+        bootstrap_email_raw = str(ADMIN_EMAIL).strip()
+        bootstrap_email = bootstrap_email_raw.lower()
+        existing_admin = await db.admins.find_one(
+            {"email": {"$regex": f"^{re.escape(bootstrap_email_raw)}$", "$options": "i"}},
+            {"_id": 0},
+        )
+        if not existing_admin:
+            admin_data = {
+                "id": str(uuid.uuid4()),
+                "email": bootstrap_email,
+                "password_hash": hash_password(ADMIN_PASSWORD),
+                "name": ADMIN_NAME,
+                "is_super_admin": True,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.admins.insert_one(admin_data)
+            logger.info("Bootstrap admin user created from environment configuration.")
+        else:
+            # Ensure the bootstrap admin is always a super admin.
+            update_fields = {}
+            if existing_admin.get("email") != bootstrap_email:
+                update_fields["email"] = bootstrap_email
+            if not bool(existing_admin.get("is_super_admin")):
+                update_fields["is_super_admin"] = True
+            if update_fields:
+                await db.admins.update_one(
+                    {"id": existing_admin.get("id")},
+                    {"$set": {**update_fields, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                )
+
+    try:
+        await db.students.create_index("enrollment_number", unique=True)
+    except Exception as exc:
+        logger.warning("Could not create unique index for enrollment_number: %s", exc)
 
 # Routes
 @api_router.post("/auth/login", response_model=LoginResponse)
@@ -443,9 +489,11 @@ async def create_student(student_data: StudentCreate, current_user: dict = Depen
                 status_code=400,
                 detail="Email or roll number already exists"
             )
+
+    enrollment_number = await generate_enrollment_number()
     
     student = Student(
-        enrollment_number=student_data.enrollment_number,
+        enrollment_number=enrollment_number,
         roll_number=student_data.roll_number,
         name=student_data.name,
         email=student_data.email,
@@ -887,6 +935,8 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
 
     # Bus fee is waived for June only.
     if datetime.now(timezone.utc).month == 6:
+        bus_fee = 0
+    elif distance == 0.0:
         bus_fee = 0
     elif distance < 2.5:
         bus_fee = 600
