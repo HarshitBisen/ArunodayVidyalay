@@ -438,14 +438,15 @@ async def reset_admin_password(admin_id: str, request: AdminPasswordResetRequest
 
 @api_router.get("/admin/students", response_model=List[StudentResponse])
 async def get_all_students(unpaid_fees: bool = False, current_user: dict = Depends(get_admin_user)):
+    current_month = month_key(datetime.now(timezone.utc))
+    payments = await db.payments.find(
+        payment_month_match_query(current_month),
+        {"_id": 0, "student_id": 1},
+    ).to_list(5000)
+    paid_student_ids = {p.get("student_id") for p in payments if p.get("student_id")}
+
     query = {}
     if unpaid_fees:
-        current_month = month_key(datetime.now(timezone.utc))
-        payments = await db.payments.find(
-            payment_month_match_query(current_month),
-            {"_id": 0, "student_id": 1},
-        ).to_list(5000)
-        paid_student_ids = {p.get("student_id") for p in payments if p.get("student_id")}
         if paid_student_ids:
             query = {"id": {"$nin": list(paid_student_ids)}}
 
@@ -460,6 +461,7 @@ async def get_all_students(unpaid_fees: bool = False, current_user: dict = Depen
             except Exception:
                 created_dt = datetime.now(timezone.utc)
             student["academic_year"] = academic_year_for(created_dt)
+        student["fee_status"] = "paid" if student.get("id") in paid_student_ids else "pending"
     return students
 
 @api_router.post("/admin/students", response_model=StudentResponse)
@@ -836,6 +838,12 @@ def academic_year_start(academic_year: Optional[str]) -> Optional[datetime]:
 def month_start(dt: datetime) -> datetime:
     return datetime(dt.year, dt.month, 1, tzinfo=dt.tzinfo or timezone.utc)
 
+def add_months(dt: datetime, months: int) -> datetime:
+    total_months = (dt.year * 12 + (dt.month - 1)) + months
+    year = total_months // 12
+    month = (total_months % 12) + 1
+    return datetime(year, month, 1, tzinfo=dt.tzinfo or timezone.utc)
+
 def month_key(dt: datetime) -> str:
     return f"{dt.year:04d}-{dt.month:02d}"
 
@@ -867,6 +875,25 @@ def months_between(a: datetime, b: datetime) -> int:
     # Number of whole month boundaries between a and b (both expected at month starts).
     return (b.year - a.year) * 12 + (b.month - a.month)
 
+def payment_month_value(payment: dict) -> Optional[datetime]:
+    paid_for_month = str(payment.get("paid_for_month") or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}", paid_for_month):
+        try:
+            year, month = paid_for_month.split("-", 1)
+            return datetime(int(year), int(month), 1, tzinfo=timezone.utc)
+        except Exception:
+            pass
+
+    paid_at = payment.get("paid_at")
+    try:
+        if isinstance(paid_at, datetime):
+            return month_start(paid_at)
+        if isinstance(paid_at, str) and paid_at:
+            return month_start(datetime.fromisoformat(paid_at))
+    except Exception:
+        return None
+    return None
+
 def calculate_late_fee(base_due_date: datetime, now: datetime) -> float:
     # Rules:
     # - If not paid till 10th of the current month: +50.
@@ -893,6 +920,29 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
         created_at = datetime.now(timezone.utc)
 
     total = 0.0
+    now = datetime.now(timezone.utc)
+    current_month = month_start(now)
+    join_month = month_start(created_at)
+    academic_start = academic_year_start(student.get("academic_year"))
+    base_due_month = academic_start or join_month
+    if base_due_month < join_month:
+        base_due_month = join_month
+
+    payments = await db.payments.find({"student_id": student_id}, {"_id": 0, "paid_for_month": 1, "paid_at": 1}).to_list(1000)
+    paid_months = {
+        payment_month
+        for payment in payments
+        if (payment_month := payment_month_value(payment)) is not None
+    }
+
+    oldest_unpaid_month = base_due_month
+    while oldest_unpaid_month in paid_months and oldest_unpaid_month <= current_month:
+        oldest_unpaid_month = add_months(oldest_unpaid_month, 1)
+
+    if oldest_unpaid_month > current_month:
+        oldest_unpaid_month = current_month
+
+    due_months = max(1, months_between(oldest_unpaid_month, current_month) + 1)
 
     if student.get("new_student") == 'yes' and is_within_academic_year(created_at):
         admission = 1000
@@ -925,7 +975,8 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     else:
         tuition = 0
 
-    total += tuition
+    tuition_total = tuition * due_months
+    total += tuition_total
 
     distance = student.get("distance_school", 0) or 0
     try:
@@ -934,7 +985,7 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
         distance = 0.0
 
     # Bus fee is waived for June only.
-    if datetime.now(timezone.utc).month == 6:
+    if current_month.month == 6:
         bus_fee = 0
     elif distance == 0.0:
         bus_fee = 0
@@ -949,15 +1000,11 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     else:
         bus_fee = 1400
 
-    total += bus_fee
+    bus_fee_total = bus_fee * due_months
+    total += bus_fee_total
 
     # Late fee: monthly fine based on current date when unpaid.
-    now = datetime.now(timezone.utc)
-    due_start = academic_year_start(student.get("academic_year")) or created_at
-    # If student joined mid-year, start counting from their join month.
-    if due_start < created_at:
-        due_start = created_at
-    late_fee = calculate_late_fee(due_start, now)
+    late_fee = calculate_late_fee(oldest_unpaid_month, now)
     total += late_fee
 
     try:
@@ -974,7 +1021,7 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     if concession:
         if concession.get("percent") is not None:
             concession_percent = float(concession.get("percent") or 0)
-            concession_base = tuition + admission
+            concession_base = tuition_total + admission
             concession_amount = round((concession_base * concession_percent) / 100.0, 2)
         else:
             concession_amount = float(concession.get("amount", 0) or 0)
@@ -982,8 +1029,8 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     sum_items = {
         "admission_fee": float(admission),
         "annual_fee": float(annual),
-        "tuition_fee": float(tuition),
-        "bus_fee": float(bus_fee),
+        "tuition_fee": float(tuition_total),
+        "bus_fee": float(bus_fee_total),
         "late_fee": float(late_fee),
         "caution_money": float(caution),
     }
@@ -1001,8 +1048,8 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
 
     return {
         "total_fee": total_fee,
-        "tuition_fee": tuition,
-        "bus_fee": bus_fee,
+        "tuition_fee": tuition_total,
+        "bus_fee": bus_fee_total,
         "annual_fee": annual,
         "admission_fee": admission,
         "late_fee": late_fee,
@@ -1014,7 +1061,11 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
             "sum": sum_items,
             "subs": subs_items,
             "total": total_fee,
-            "meta": {"concession": concession_meta} if concession_meta else {},
+            "meta": {
+                **({"concession": concession_meta} if concession_meta else {}),
+                "due_months": due_months,
+                "oldest_unpaid_month": month_key(oldest_unpaid_month),
+            },
         },
     }
 
@@ -1038,7 +1089,30 @@ async def calculate_fee(student: dict):
             payment["paid_at"] = payment["paid_at"].isoformat()
         return {
             "message": "Payment already exists",
-            "payment": payment
+            "payment": payment,
+            "total_fee": 0,
+            "tuition_fee": 0,
+            "bus_fee": 0,
+            "annual_fee": 0,
+            "admission_fee": 0,
+            "late_fee": 0,
+            "caution_money": 0,
+            "concession": 0,
+            "concession_percent": None,
+            "concession_reason": None,
+            "breakup": {
+                "sum": {
+                    "admission_fee": 0,
+                    "annual_fee": 0,
+                    "tuition_fee": 0,
+                    "bus_fee": 0,
+                    "late_fee": 0,
+                    "caution_money": 0,
+                },
+                "subs": {},
+                "total": 0,
+                "meta": {},
+            },
         }
     return await build_fee_breakup(student, student_id)
     

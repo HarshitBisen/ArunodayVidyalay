@@ -30,9 +30,29 @@ export default function FeesManagement() {
 
 	    const fetchStudents = async () => {
 	        try {
-	          // Only show students who haven't paid for the current month.
-	          const response = await api.get('/admin/students?unpaid_fees=true');
-	          setStudents(response.data);
+	          const response = await api.get('/admin/students');
+            const studentsWithPendingFees = await Promise.all(
+              response.data.map(async (student) => {
+                try {
+                  const feeRes = await api.post('/fees/calculate', {
+                    ...student,
+                    frequency: 'monthly',
+                  });
+                  return {
+                    ...student,
+                    pending_fee: Number(feeRes.data?.total_fee ?? 0),
+                    fee_details: feeRes.data,
+                  };
+                } catch (error) {
+                  return {
+                    ...student,
+                    pending_fee: 0,
+                    fee_details: null,
+                  };
+                }
+              })
+            );
+	          setStudents(studentsWithPendingFees);
 	        } catch (error) {
 	          toast.error('Failed to fetch students');
 	        } finally {
@@ -42,6 +62,11 @@ export default function FeesManagement() {
 
 	      const openFeeModal = async (student) => {
 	        try {
+            if (student.fee_details) {
+              setFeeDetails(student.fee_details);
+              setShowFeeModal(true);
+              return;
+            }
 	          const res = await api.post("/fees/calculate", {
 	            ...student,
 	            frequency: "monthly"
@@ -146,15 +171,21 @@ export default function FeesManagement() {
 	                                  <td className="font-outfit text-gray-900 py-3 px-4">{student.enrollment_number}</td>
 	                                  <td className="font-outfit text-gray-900 py-3 px-4">{student.name}</td>
 	                                  <td className="font-outfit text-gray-600 py-3 px-4">{student.class_name}</td>
-	                                  
 	                                  <td className="py-3 px-4">
-	                                    <div className="flex space-x-2">
+	                                    <div className="flex items-center gap-3">
+                                      <span className="font-outfit text-gray-900">
+                                        ₹{Number(student.pending_fee ?? 0).toLocaleString()}
+                                      </span>
 	                                    <button
                                     onClick={() => openFeeModal(student)}
-                                    className="bg-red-100 text-red-600 px-3 py-1 rounded hover:bg-red-200"
+                                    className={`px-3 py-1 rounded ${
+                                      Number(student.pending_fee ?? 0) > 0
+                                        ? 'bg-red-100 text-red-600 hover:bg-red-200'
+                                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                    }`}
                                     data-testid={`fee-pending-${student.id}`}
                                     >
-                                    View Fee
+                                    {Number(student.pending_fee ?? 0) > 0 ? 'View Fee' : 'Paid'}
                                     </button>
                                     </div>
                                   </td>
@@ -340,6 +371,14 @@ export default function FeesManagement() {
 		                              ₹{feeDetails.bus_fee}
 		                            </span>
 		                          </div>
+                              {Number(feeDetails.late_fee ?? 0) > 0 && (
+		                          <div className="flex items-center justify-between font-outfit text-gray-700">
+		                            <span>Late Fee</span>
+		                            <span className="font-semibold tabular-nums text-gray-900">
+		                              ₹{feeDetails.late_fee}
+		                            </span>
+		                          </div>
+                              )}
 		                          <div className="flex items-center justify-between font-outfit text-gray-700">
 		                            <span>Caution Money</span>
 		                            <span className="font-semibold tabular-nums text-gray-900">
