@@ -1,6 +1,82 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { MapPin, Phone, Mail, GraduationCap } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+
+const policyContent = {
+  refund: {
+    title: 'Refund Policy',
+    body: `Welcome to Arunoday Vidyalay. By taking admission in the school, parents/guardians agree to the following cancellation and refund terms.
+
+1. Admission Cancellation
+	•	Admission once confirmed may be cancelled only through a written application submitted by the parent/guardian to the school administration.
+	•	Cancellation requests will be processed as per school rules and applicable procedures.
+
+2. Refund Policy
+	•	The school does not provide refunds for:
+	•	Admission fees
+	•	Tuition fees
+	•	Annual charges
+	•	Examination fees
+	•	Transport fees
+	•	Activity fees
+	•	Any other charges paid to the school
+
+3. Caution Money Refund
+	•	A refundable Caution Money/Security Deposit is collected only once at the time of admission.
+	•	The caution money will be refunded only when:
+	•	The student officially leaves the school, and
+	•	All dues, fines, library books, uniforms, ID cards, or other school property (if applicable) are cleared/returned.
+	•	The refund process may take reasonable processing time after verification by the school administration.
+
+4. Mode of Refund
+	•	Approved caution money refunds will be credited through bank transfer or any other mode decided by the school administration.
+
+5. School’s Right
+	•	The school reserves the right to modify or update this policy at any time without prior notice.`,
+  },
+  privacy: {
+    title: 'Privacy Policy',
+    body: `Welcome to Arunoday Vidyalay. We value the privacy of students, parents, staff, and website visitors.
+
+1. Information We Collect
+
+The school may collect the following information:
+	•	Student and parent/guardian details
+	•	Contact information such as phone number, email address, and address
+	•	Academic and admission-related information
+	•	Information submitted through website forms or enquiries
+
+2. Use of Information
+
+The collected information may be used for:
+	•	Admission and academic purposes
+	•	Communication with parents/guardians
+	•	School administration and record maintenance
+	•	Responding to enquiries and support requests
+	•	Improving school services and website functionality
+
+3. Information Sharing
+	•	The school does not sell, trade, or rent personal information to third parties.
+	•	Information may be shared only when required by law or government authorities.
+
+4. Data Security
+	•	The school takes reasonable measures to protect personal information from unauthorized access, misuse, or disclosure.
+
+5. Website Usage
+	•	The website may use basic cookies or analytics tools to improve user experience and website performance.
+
+6. External Links
+	•	The school website may contain links to external websites. The school is not responsible for the privacy practices or content of such websites.
+
+7. Consent
+	•	By using the website or submitting information to the school, users consent to this Privacy Policy.
+
+8. Policy Updates
+	•	The school reserves the right to update or modify this Privacy Policy at any time without prior notice.
+`,
+  },
+};
 
 export default function Footer() {
   return (
@@ -63,6 +139,36 @@ export default function Footer() {
         </div>
 
         <div className="border-t border-gray-700 mt-8 pt-8 text-center font-outfit text-sm">
+          <div className="flex items-center justify-center gap-4 mb-4 flex-wrap">
+            {Object.entries(policyContent).map(([key, policy]) => (
+              <Dialog key={key}>
+                <DialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-gray-300 hover:text-sunny-yellow transition-colors underline underline-offset-4"
+                    data-testid={`${key}-policy-link`}
+                  >
+                    {policy.title}
+                  </button>
+                </DialogTrigger>
+                <DialogContent
+                  className="max-w-md bg-white text-sunny-navy border-2 border-sunny-navy rounded-2xl"
+                  data-testid={`${key}-policy-modal`}
+                >
+                  <DialogHeader>
+                    <DialogTitle className="font-fredoka text-2xl text-sunny-navy">
+                      {policy.title}
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="max-h-[60vh] overflow-y-auto pr-2">
+                    <p className="font-outfit text-left text-sm leading-7 text-gray-700 whitespace-pre-line">
+                      {policy.body}
+                    </p>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            ))}
+          </div>
           <p>&copy; 2025 Arunoday Vidyalay. All rights reserved.</p>
         </div>
       </div>
