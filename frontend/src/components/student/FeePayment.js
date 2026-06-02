@@ -5,6 +5,20 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import api from '@/utils/api';
 
+const loadRazorpayScript = () =>
+  new Promise((resolve, reject) => {
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => reject(new Error('Failed to load Razorpay SDK'));
+    document.body.appendChild(script);
+  });
+
 export default function FeePayment() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -52,26 +66,74 @@ export default function FeePayment() {
 
   const processPayment = async () => {
     setProcessing(true);
-    
-    // Simulate payment processing
-    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     try {
       if (payableAmount <= 0) {
         toast.error('Invalid payable amount');
+        setProcessing(false);
         return;
       }
-      const transactionId = `BOB${Date.now()}${Math.floor(Math.random() * 10000)}`;
-      await api.post('/student/pay-fee', {
+
+      const orderRes = await api.post('/razorpay/create-order', {
         amount: payableAmount,
-        transaction_id: transactionId,
+        currency: 'INR',
+        receipt: `fee_${profile?.id}_${Date.now()}`,
       });
-      toast.success('Payment successful!');
-      setShowPaymentModal(false);
-      fetchProfile();
+
+      await loadRazorpayScript();
+
+      const { id: order_id, amount, currency, key_id } = orderRes.data;
+      const options = {
+        key: key_id,
+        amount,
+        currency,
+        name: 'Arunoday Vidyalay',
+        description: 'School fee payment',
+        order_id,
+        prefill: {
+          name: profile?.name || '',
+          email: profile?.email || '',
+          contact: profile?.phone || '',
+        },
+        notes: {
+          student_id: profile?.id || '',
+        },
+        theme: {
+          color: '#0f172a',
+        },
+        modal: {
+          ondismiss: () => {
+            setProcessing(false);
+          },
+        },
+        handler: async function (response) {
+          try {
+            await api.post('/razorpay/verify', {
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+              amount: payableAmount,
+            });
+
+            toast.success('Payment successful!');
+            setShowPaymentModal(false);
+            fetchProfile();
+          } catch (error) {
+            toast.error(error.response?.data?.detail || 'Payment verification failed');
+          } finally {
+            setProcessing(false);
+          }
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', function (response) {
+        toast.error(response.error?.description || 'Payment failed');
+        setProcessing(false);
+      });
+      rzp.open();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Payment failed');
-    } finally {
+      toast.error(error.response?.data?.detail || error.message || 'Unable to start payment');
       setProcessing(false);
     }
   };
@@ -213,9 +275,9 @@ export default function FeePayment() {
 
           <div className="space-y-4">
             <div className="bg-sunny-cream rounded-xl p-6 border border-sunny-border">
-              <h3 className="font-fredoka font-bold text-sunny-navy mb-2">Bank of Baroda PayPoint</h3>
+              <h3 className="font-fredoka font-bold text-sunny-navy mb-2">Razorpay</h3>
               <p className="font-outfit text-gray-600 text-sm mb-4">
-                Pay securely using Bank of Baroda's payment gateway. All transactions are encrypted and secure.
+                Pay securely using Razorpay's checkout. All transactions are encrypted and secure.
               </p>
               <div className="space-y-2 text-sm font-outfit text-gray-600">
                 <div className="flex items-center space-x-2">
@@ -270,7 +332,7 @@ export default function FeePayment() {
 
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
               <p className="font-outfit text-sm text-blue-700">
-                This is a demo payment. In production, you will be redirected to Bank of Baroda's secure payment page.
+                You will be redirected to Razorpay's secure checkout to complete the payment.
               </p>
             </div>
 

@@ -14,6 +14,7 @@ from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
 from pymongo import ReturnDocument
+import razorpay
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -30,6 +31,11 @@ JWT_EXPIRATION_HOURS = 24
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 ADMIN_NAME = os.environ.get("ADMIN_NAME", "Admin")
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET")
+razorpay_client = None
+if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET:
+    razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 # Security
 security = HTTPBearer()
@@ -193,6 +199,17 @@ class FeePayment(BaseModel):
 class FeePaymentCreate(BaseModel):
     amount: float
     transaction_id: str
+
+class RazorpayOrderRequest(BaseModel):
+    amount: float = Field(..., gt=0)
+    currency: str = "INR"
+    receipt: Optional[str] = None
+
+class RazorpayPaymentVerificationRequest(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str
+    razorpay_signature: str
+    amount: float
 
 class ContactForm(BaseModel):
     name: str
@@ -697,6 +714,115 @@ async def get_student_profile(current_user: dict = Depends(get_current_user)):
     )
     student["fee_status"] = "paid" if payment else "pending"
     return StudentResponse(**student)
+
+@api_router.post("/razorpay/create-order")
+async def create_razorpay_order(order_request: RazorpayOrderRequest, current_user: dict = Depends(get_current_user)):
+    if current_user['user_type'] != 'student':
+        raise HTTPException(status_code=403, detail="Student access required")
+    if razorpay_client is None:
+        raise HTTPException(status_code=500, detail="Razorpay not configured")
+
+    student = await db.students.find_one({"id": current_user['user_id']}, {"_id": 0})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    now = datetime.now(timezone.utc)
+    current_month = month_key(now)
+    existing_payment = await db.payments.find_one(
+        {"student_id": current_user['user_id'], **payment_month_match_query(current_month)},
+        {"_id": 0, "id": 1},
+    )
+    if existing_payment:
+        raise HTTPException(status_code=400, detail="Fee already paid for this month")
+
+    fee = await build_fee_breakup(student, current_user['user_id'])
+    payable = float(fee.get("total_fee") or 0)
+    if payable <= 0:
+        raise HTTPException(status_code=400, detail="Invalid payable amount")
+    if abs(order_request.amount - payable) > 0.01:
+        raise HTTPException(status_code=400, detail="Amount mismatch")
+
+    receipt = (order_request.receipt or f"fee_{current_user['user_id'][:8]}_{uuid.uuid4().hex[:8]}").strip()
+    if len(receipt) > 40:
+        receipt = receipt[:40]
+
+    order_data = {
+        "amount": int(round(payable * 100)),
+        "currency": "INR",
+        "receipt": receipt,
+        "payment_capture": 1,
+    }
+    try:
+        order = razorpay_client.order.create(order_data)
+    except Exception as exc:
+        logger.exception("Razorpay order creation failed for student %s", current_user['user_id'])
+        raise HTTPException(status_code=500, detail=f"Razorpay order creation failed: {str(exc)}")
+
+    return {
+        "id": order["id"],
+        "amount": order["amount"],
+        "currency": order["currency"],
+        "receipt": order["receipt"],
+        "status": order["status"],
+        "key_id": RAZORPAY_KEY_ID,
+    }
+
+@api_router.post("/razorpay/verify")
+async def verify_razorpay_payment(request: RazorpayPaymentVerificationRequest, current_user: dict = Depends(get_current_user)):
+    if current_user['user_type'] != 'student':
+        raise HTTPException(status_code=403, detail="Student access required")
+    if razorpay_client is None:
+        raise HTTPException(status_code=500, detail="Razorpay not configured")
+
+    student = await db.students.find_one({"id": current_user['user_id']}, {"_id": 0})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    now = datetime.now(timezone.utc)
+    current_month = month_key(now)
+    existing_payment = await db.payments.find_one(
+        {"student_id": current_user['user_id'], **payment_month_match_query(current_month)},
+        {"_id": 0, "id": 1},
+    )
+    if existing_payment:
+        raise HTTPException(status_code=400, detail="Fee already paid for this month")
+
+    try:
+        razorpay_client.utility.verify_payment_signature({
+            "razorpay_order_id": request.razorpay_order_id,
+            "razorpay_payment_id": request.razorpay_payment_id,
+            "razorpay_signature": request.razorpay_signature,
+        })
+    except Exception as exc:
+        logger.exception("Razorpay signature verification failed for student %s", current_user['user_id'])
+        raise HTTPException(status_code=400, detail="Payment signature verification failed")
+
+    fee = await build_fee_breakup(student, current_user['user_id'])
+    payable = float(fee.get("total_fee") or 0)
+    if abs(request.amount - payable) > 0.01:
+        raise HTTPException(status_code=400, detail="Amount mismatch")
+
+    payment = FeePayment(
+        student_id=current_user['user_id'],
+        amount=payable,
+        payment_method="Razorpay",
+        transaction_id=request.razorpay_payment_id,
+        paid_for_month=current_month,
+        breakup=fee.get("breakup"),
+    )
+    doc = payment.model_dump()
+    doc["payment_gateway"] = "Razorpay"
+    doc["razorpay_order_id"] = request.razorpay_order_id
+    doc["razorpay_signature"] = request.razorpay_signature
+    doc["paid_at"] = doc["paid_at"].isoformat()
+
+    await db.payments.insert_one(doc)
+    await db.students.update_one(
+        {"id": current_user['user_id']},
+        {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+    return {"message": "Fee payment successful", "payment_id": payment.id, "breakup": fee.get("breakup")}
 
 @api_router.post("/student/change-password")
 async def change_password(request: PasswordChangeRequest, current_user: dict = Depends(get_current_user)):
