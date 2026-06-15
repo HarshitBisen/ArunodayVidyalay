@@ -51,6 +51,7 @@ class Student(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     enrollment_number: str
+    active: bool = True
     roll_number: str
     name: str
     email: Optional[EmailStr] = None
@@ -119,6 +120,7 @@ class StudentResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
     enrollment_number: Optional[str] = None
+    active: bool = True
     roll_number: str
     name: str
     email: Optional[EmailStr] = None
@@ -226,6 +228,12 @@ def verify_password(password: str, hashed: str) -> bool:
 
 ENROLLMENT_PREFIX = "AV"
 ENROLLMENT_COUNTER_ID = "student_enrollment"
+
+def active_student_query(extra: Optional[dict] = None) -> dict:
+    query = {"active": {"$ne": False}}
+    if extra:
+        query.update(extra)
+    return query
 
 async def get_max_enrollment_sequence() -> int:
     students = await db.students.find(
@@ -352,6 +360,11 @@ async def startup_event():
     except Exception as exc:
         logger.warning("Could not create unique index for enrollment_number: %s", exc)
 
+    await db.students.update_many(
+        {"active": {"$exists": False}},
+        {"$set": {"active": True}},
+    )
+
 # Routes
 @api_router.post("/auth/login", response_model=LoginResponse)
 async def login(request: LoginRequest, response: Response):
@@ -378,7 +391,7 @@ async def login(request: LoginRequest, response: Response):
     
     # Check if student
     student = await db.students.find_one(
-        {"email": {"$regex": f"^{re.escape(email_in)}$", "$options": "i"}},
+        active_student_query({"email": {"$regex": f"^{re.escape(email_in)}$", "$options": "i"}}),
         {"_id": 0},
     )
     if student and verify_password(request.password, student['password_hash']):
@@ -462,10 +475,10 @@ async def get_all_students(unpaid_fees: bool = False, current_user: dict = Depen
     ).to_list(5000)
     paid_student_ids = {p.get("student_id") for p in payments if p.get("student_id")}
 
-    query = {}
+    query = active_student_query()
     if unpaid_fees:
         if paid_student_ids:
-            query = {"id": {"$nin": list(paid_student_ids)}}
+            query["id"] = {"$nin": list(paid_student_ids)}
 
     students = await db.students.find(query, {"_id": 0}).to_list(1000)
     for student in students:
@@ -499,7 +512,7 @@ async def create_student(student_data: StudentCreate, current_user: dict = Depen
     # run query only if any field exists
     if conditions:
         existing = await db.students.find_one(
-            {"$or": conditions},
+            active_student_query({"$or": conditions}),
             {"_id": 0}
         )
 
@@ -539,7 +552,7 @@ async def create_student(student_data: StudentCreate, current_user: dict = Depen
 
 @api_router.put("/admin/students/{student_id}", response_model=StudentResponse)
 async def update_student(student_id: str, student_data: StudentUpdate, current_user: dict = Depends(get_admin_user)):
-    student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
@@ -559,34 +572,37 @@ async def update_student(student_id: str, student_data: StudentUpdate, current_u
             raise HTTPException(status_code=400, detail="Distance from school is required when bus service is opted")
     if update_data:
         update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
-        await db.students.update_one({"id": student_id}, {"$set": update_data})
+        await db.students.update_one(active_student_query({"id": student_id}), {"$set": update_data})
     
-    updated_student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    updated_student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
     return StudentResponse(**updated_student)
 
 @api_router.delete("/admin/students/{student_id}")
-async def delete_student(student_id: str, current_user: dict = Depends(get_admin_user)):
-    result = await db.students.delete_one({"id": student_id})
-    if result.deleted_count == 0:
+async def deactivate_student(student_id: str, current_user: dict = Depends(get_admin_user)):
+    result = await db.students.update_one(
+        active_student_query({"id": student_id}),
+        {"$set": {"active": False, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Student not found")
-    return {"message": "Student deleted successfully"}
+    return {"message": "Student deactivated successfully"}
 
 @api_router.post("/admin/students/{student_id}/reset-password")
 async def reset_student_password(student_id: str, request: PasswordResetRequest, current_user: dict = Depends(get_admin_user)):
-    student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
     new_hash = hash_password(request.new_password)
     await db.students.update_one(
-        {"id": student_id},
+        active_student_query({"id": student_id}),
         {"$set": {"password_hash": new_hash, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     return {"message": "Password reset successfully"}
 
 @api_router.get("/admin/students/{student_id}/concession", response_model=ConcessionStatusResponse)
 async def get_student_concession(student_id: str, current_user: dict = Depends(get_admin_user)):
-    student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
@@ -612,7 +628,7 @@ async def upsert_student_concession(
     payload: ConcessionUpsertRequest,
     current_user: dict = Depends(get_admin_user),
 ):
-    student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
@@ -667,7 +683,7 @@ async def upsert_student_concession(
 
 @api_router.delete("/admin/students/{student_id}/concession", response_model=ConcessionStatusResponse)
 async def delete_student_concession(student_id: str, current_user: dict = Depends(get_admin_user)):
-    student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
@@ -692,7 +708,7 @@ async def get_student_profile(current_user: dict = Depends(get_current_user)):
     if current_user['user_type'] != 'student':
         raise HTTPException(status_code=403, detail="Student access required")
     
-    student = await db.students.find_one({"id": current_user['user_id']}, {"_id": 0})
+    student = await db.students.find_one(active_student_query({"id": current_user['user_id']}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
@@ -722,7 +738,7 @@ async def create_razorpay_order(order_request: RazorpayOrderRequest, current_use
     if razorpay_client is None:
         raise HTTPException(status_code=500, detail="Razorpay not configured")
 
-    student = await db.students.find_one({"id": current_user['user_id']}, {"_id": 0})
+    student = await db.students.find_one(active_student_query({"id": current_user['user_id']}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
@@ -774,7 +790,7 @@ async def verify_razorpay_payment(request: RazorpayPaymentVerificationRequest, c
     if razorpay_client is None:
         raise HTTPException(status_code=500, detail="Razorpay not configured")
 
-    student = await db.students.find_one({"id": current_user['user_id']}, {"_id": 0})
+    student = await db.students.find_one(active_student_query({"id": current_user['user_id']}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
@@ -818,7 +834,7 @@ async def verify_razorpay_payment(request: RazorpayPaymentVerificationRequest, c
 
     await db.payments.insert_one(doc)
     await db.students.update_one(
-        {"id": current_user['user_id']},
+        active_student_query({"id": current_user['user_id']}),
         {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
     )
 
@@ -829,7 +845,7 @@ async def change_password(request: PasswordChangeRequest, current_user: dict = D
     if current_user['user_type'] != 'student':
         raise HTTPException(status_code=403, detail="Student access required")
     
-    student = await db.students.find_one({"id": current_user['user_id']}, {"_id": 0})
+    student = await db.students.find_one(active_student_query({"id": current_user['user_id']}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
@@ -838,7 +854,7 @@ async def change_password(request: PasswordChangeRequest, current_user: dict = D
     
     new_hash = hash_password(request.new_password)
     await db.students.update_one(
-        {"id": current_user['user_id']},
+        active_student_query({"id": current_user['user_id']}),
         {"$set": {"password_hash": new_hash, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     return {"message": "Password changed successfully"}
@@ -848,7 +864,7 @@ async def pay_fee(payment_data: FeePaymentCreate, current_user: dict = Depends(g
     if current_user['user_type'] != 'student':
         raise HTTPException(status_code=403, detail="Student access required")
     
-    student = await db.students.find_one({"id": current_user['user_id']}, {"_id": 0})
+    student = await db.students.find_one(active_student_query({"id": current_user['user_id']}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
@@ -884,7 +900,7 @@ async def pay_fee(payment_data: FeePaymentCreate, current_user: dict = Depends(g
     await db.payments.insert_one(doc)
     # Don't persist a sticky fee_status; fee status is month-based and computed from payments.
     await db.students.update_one(
-        {"id": current_user["user_id"]},
+        active_student_query({"id": current_user["user_id"]}),
         {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     
@@ -894,6 +910,10 @@ async def pay_fee(payment_data: FeePaymentCreate, current_user: dict = Depends(g
 async def get_student_payments(current_user: dict = Depends(get_current_user)):
     if current_user['user_type'] != 'student':
         raise HTTPException(status_code=403, detail="Student access required")
+
+    student = await db.students.find_one(active_student_query({"id": current_user['user_id']}), {"_id": 0, "id": 1})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
     
     payments = await db.payments.find({"student_id": current_user['user_id']}, {"_id": 0}).to_list(100)
     for payment in payments:
@@ -1147,7 +1167,7 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     if concession:
         if concession.get("percent") is not None:
             concession_percent = float(concession.get("percent") or 0)
-            concession_base = tuition_total + admission
+            concession_base = tuition_total 
             concession_amount = round((concession_base * concession_percent) / 100.0, 2)
         else:
             concession_amount = float(concession.get("amount", 0) or 0)

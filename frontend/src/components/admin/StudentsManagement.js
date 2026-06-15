@@ -128,13 +128,13 @@ export default function StudentsManagement() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this student?')) return;
+    if (!window.confirm('Are you sure you want to make this student inactive?')) return;
     try {
       await api.delete(`/admin/students/${id}`);
-      toast.success('Student deleted successfully');
+      toast.success('Student deactivated successfully');
       fetchStudents();
     } catch (error) {
-      toast.error('Failed to delete student');
+      toast.error('Failed to deactivate student');
     }
   };
 
