@@ -13,6 +13,12 @@ export default function FeesManagement() {
 	    const [loading, setLoading] = useState(true);
 	    const [showFeeModal, setShowFeeModal] = useState(false);
 	    const [feeDetails, setFeeDetails] = useState(null);
+		const [selectedStudent, setSelectedStudent] = useState(null);
+		const [offlineReceipt, setOfflineReceipt] = useState('');
+		const [offlineAmount, setOfflineAmount] = useState('');
+		const [offlineMonth, setOfflineMonth] = useState('');
+		const [offlineNote, setOfflineNote] = useState('');
+		const [processingOffline, setProcessingOffline] = useState(false);
 	    const [showConcessionModal, setShowConcessionModal] = useState(false);
 	    const [concessionStudent, setConcessionStudent] = useState(null);
 	    const [concessionApplied, setConcessionApplied] = useState('no');
@@ -60,23 +66,58 @@ export default function FeesManagement() {
         }
       };
 
-	      const openFeeModal = async (student) => {
+			const openFeeModal = async (student) => {
 	        try {
-            if (student.fee_details) {
-              setFeeDetails(student.fee_details);
-              setShowFeeModal(true);
-              return;
-            }
+						setSelectedStudent(student);
+						setOfflineReceipt('');
+						setOfflineNote('');
+						setOfflineMonth(new Date().toISOString().slice(0,7));
+						setOfflineAmount('');
+						if (student.fee_details) {
+							setFeeDetails(student.fee_details);
+							setShowFeeModal(true);
+							return;
+						}
 	          const res = await api.post("/fees/calculate", {
 	            ...student,
 	            frequency: "monthly"
 	          });
-	          setFeeDetails(res.data);
+					setFeeDetails(res.data);
+					setOfflineAmount(String(res.data?.total_fee ?? ''));
 	          setShowFeeModal(true);
 	        } catch (error) {
 	          toast.error("Failed to calculate fee");
 	        }
 	      };
+
+			const submitOfflinePayment = async () => {
+				if (!selectedStudent) return;
+				setProcessingOffline(true);
+				try {
+					const payload = {
+						receipt: offlineReceipt,
+					};
+					if (offlineAmount) payload.amount = Number(offlineAmount);
+					if (offlineMonth) payload.paid_for_month = offlineMonth;
+					if (offlineNote) payload.note = offlineNote;
+
+					const res = await api.post(`/admin/students/${selectedStudent.id}/mark-paid`, payload);
+					const adminMeta = res.data?.admin_marked_by;
+					if (adminMeta) {
+						const by = adminMeta.name || adminMeta.email || adminMeta.admin_id || '';
+						toast.success(`${res.data?.message || 'Offline payment recorded'} by ${by}`);
+					} else {
+						toast.success(res.data?.message || 'Offline payment recorded');
+					}
+					setShowFeeModal(false);
+					setSelectedStudent(null);
+					fetchStudents();
+				} catch (error) {
+					toast.error(error.response?.data?.detail || 'Failed to record offline payment');
+				} finally {
+					setProcessingOffline(false);
+				}
+			};
 
 		      const openEditModal = async (student) => {
 		        setConcessionStudent(student);
@@ -409,19 +450,39 @@ export default function FeesManagement() {
 
 		                        <div className="my-5 h-px bg-gray-100" />
 
-		                        <div className="flex items-center justify-between rounded-xl bg-sunny-navy px-4 py-3 text-white">
+								<div className="flex items-center justify-between rounded-xl bg-sunny-navy px-4 py-3 text-white">
 		                          <div className="font-outfit">
 		                            <div className="text-xs opacity-90">Total Pending</div>
 		                            <div className="text-lg font-bold tabular-nums">
 		                              ₹{feeDetails.total_fee}
 		                            </div>
 		                          </div>
-		                          <Button
-		                            onClick={() => setShowFeeModal(false)}
-		                            className="bg-white/90 text-sunny-navy hover:bg-white"
-		                          >
-		                            Done
-		                          </Button>
+															<div className="space-y-2 w-1/2">
+																<div className="grid gap-2">
+																	<Label className="text-sm font-outfit">Receipt Number</Label>
+																	<Input value={offlineReceipt} onChange={(e) => setOfflineReceipt(e.target.value)} placeholder="Enter receipt number" />
+																</div>
+																<div className="grid gap-2">
+																	<Label className="text-sm font-outfit">Amount (optional)</Label>
+																	<Input value={offlineAmount} onChange={(e) => setOfflineAmount(e.target.value)} placeholder={String(feeDetails.total_fee)} />
+																</div>
+																<div className="grid gap-2">
+																	<Label className="text-sm font-outfit">Month (YYYY-MM, optional)</Label>
+																	<Input value={offlineMonth} onChange={(e) => setOfflineMonth(e.target.value)} placeholder={new Date().toISOString().slice(0,7)} />
+																</div>
+																<div className="grid gap-2">
+																	<Label className="text-sm font-outfit">Note (optional)</Label>
+																	<Input value={offlineNote} onChange={(e) => setOfflineNote(e.target.value)} placeholder="Cash receipt details" />
+																</div>
+																<div className="flex gap-2 mt-2">
+																	<Button onClick={submitOfflinePayment} disabled={processingOffline || !offlineReceipt} className="bg-white/90 text-sunny-navy hover:bg-white">
+																		{processingOffline ? 'Recording...' : 'Mark Paid (Offline)'}
+																	</Button>
+																	<Button onClick={() => setShowFeeModal(false)} variant="outline">
+																		Close
+																	</Button>
+																</div>
+															</div>
 		                        </div>
 		                      </div>
 		                    </div>
