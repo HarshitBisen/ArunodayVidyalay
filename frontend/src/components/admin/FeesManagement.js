@@ -15,7 +15,6 @@ export default function FeesManagement() {
 	    const [feeDetails, setFeeDetails] = useState(null);
 		const [selectedStudent, setSelectedStudent] = useState(null);
 		const [offlineReceipt, setOfflineReceipt] = useState('');
-		const [offlineAmount, setOfflineAmount] = useState('');
 		const [offlineMonth, setOfflineMonth] = useState('');
 		const [offlineNote, setOfflineNote] = useState('');
 		const [processingOffline, setProcessingOffline] = useState(false);
@@ -97,9 +96,6 @@ export default function FeesManagement() {
 					const payload = {
 						receipt: offlineReceipt,
 					};
-					if (offlineAmount) payload.amount = Number(offlineAmount);
-					if (offlineMonth) payload.paid_for_month = offlineMonth;
-					if (offlineNote) payload.note = offlineNote;
 
 					const res = await api.post(`/admin/students/${selectedStudent.id}/mark-paid`, payload);
 					const adminMeta = res.data?.admin_marked_by;
@@ -368,7 +364,7 @@ export default function FeesManagement() {
 
 		            {showFeeModal && feeDetails && (
 		                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-		                    <div className="w-full max-w-md overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl">
+		                    <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl">
 		                      <div className="flex items-start justify-between gap-4 border-b bg-gradient-to-r from-sunny-blue/10 to-transparent px-6 py-4">
 		                        <div>
 		                          <h2 className="text-xl font-fredoka font-bold text-sunny-navy">
@@ -380,9 +376,9 @@ export default function FeesManagement() {
 		                        </div>
 		                        <button
 		                          onClick={() => setShowFeeModal(false)}
-		                          className="rounded-full px-3 py-1 text-sm font-outfit font-semibold text-gray-700 hover:bg-gray-100"
+		                          className="ml-auto bg-gray-200 hover:bg-gray-300 text-gray-900 rounded-lg px-4 py-2 text-sm font-outfit font-semibold"
 		                        >
-		                          Close
+		                          ✕ Close
 		                        </button>
 		                      </div>
 
@@ -450,39 +446,44 @@ export default function FeesManagement() {
 
 		                        <div className="my-5 h-px bg-gray-100" />
 
-								<div className="flex items-center justify-between rounded-xl bg-sunny-navy px-4 py-3 text-white">
-		                          <div className="font-outfit">
-		                            <div className="text-xs opacity-90">Total Pending</div>
-		                            <div className="text-lg font-bold tabular-nums">
-		                              ₹{feeDetails.total_fee}
+		                        <div className="space-y-4">
+		                          <div className="flex items-center justify-between rounded-xl bg-sunny-navy px-4 py-3 text-white">
+		                            <div className="font-outfit">
+		                              <div className="text-xs opacity-90">Total Pending</div>
+		                              <div className="text-lg font-bold tabular-nums">
+		                                ₹{feeDetails.total_fee}
+		                              </div>
 		                            </div>
 		                          </div>
-															<div className="space-y-2 w-1/2">
-																<div className="grid gap-2">
-																	<Label className="text-sm font-outfit">Receipt Number</Label>
-																	<Input value={offlineReceipt} onChange={(e) => setOfflineReceipt(e.target.value)} placeholder="Enter receipt number" />
-																</div>
-																<div className="grid gap-2">
-																	<Label className="text-sm font-outfit">Amount (optional)</Label>
-																	<Input value={offlineAmount} onChange={(e) => setOfflineAmount(e.target.value)} placeholder={String(feeDetails.total_fee)} />
-																</div>
-																<div className="grid gap-2">
-																	<Label className="text-sm font-outfit">Month (YYYY-MM, optional)</Label>
-																	<Input value={offlineMonth} onChange={(e) => setOfflineMonth(e.target.value)} placeholder={new Date().toISOString().slice(0,7)} />
-																</div>
-																<div className="grid gap-2">
-																	<Label className="text-sm font-outfit">Note (optional)</Label>
-																	<Input value={offlineNote} onChange={(e) => setOfflineNote(e.target.value)} placeholder="Cash receipt details" />
-																</div>
-																<div className="flex gap-2 mt-2">
-																	<Button onClick={submitOfflinePayment} disabled={processingOffline || !offlineReceipt} className="bg-white/90 text-sunny-navy hover:bg-white">
-																		{processingOffline ? 'Recording...' : 'Mark Paid (Offline)'}
-																	</Button>
-																	<Button onClick={() => setShowFeeModal(false)} variant="outline">
-																		Close
-																	</Button>
-																</div>
-															</div>
+
+		                          {Number(feeDetails.total_fee) > 0 && (
+		                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
+		                              <h3 className="font-fredoka font-semibold text-sunny-navy">Mark as Cash Payment</h3>
+		                              <div className="grid grid-cols-2 gap-3">
+		                                <div className="grid gap-2 col-span-2">
+		                                  <Label className="text-sm font-outfit font-semibold">Receipt Number *</Label>
+		                                  <Input value={offlineReceipt} onChange={(e) => setOfflineReceipt(e.target.value)} placeholder="Enter receipt number" />
+		                                </div>
+		                                <div className="grid gap-2">
+		                                  <Label className="text-sm font-outfit font-semibold">Amount (optional)</Label>
+		                                  <Input value={offlineAmount} onChange={(e) => setOfflineAmount(e.target.value)} placeholder={String(feeDetails.total_fee)} />
+		                                </div>
+		                                <div className="grid gap-2">
+		                                  <Label className="text-sm font-outfit font-semibold">Month (YYYY-MM)</Label>
+		                                  <Input value={offlineMonth} onChange={(e) => setOfflineMonth(e.target.value)} placeholder={new Date().toISOString().slice(0,7)} />
+		                                </div>
+		                                <div className="grid gap-2 col-span-2">
+		                                  <Label className="text-sm font-outfit font-semibold">Note (optional)</Label>
+		                                  <Input value={offlineNote} onChange={(e) => setOfflineNote(e.target.value)} placeholder="Cash receipt details" />
+		                                </div>
+		                              </div>
+		                              <div className="flex gap-2 pt-2">
+		                                <Button onClick={submitOfflinePayment} disabled={processingOffline || !offlineReceipt} className="flex-1 bg-green-600 hover:bg-green-700 text-white">
+		                                  {processingOffline ? 'Recording...' : 'Record Payment'}
+		                                </Button>
+		                              </div>
+		                            </div>
+		                          )}
 		                        </div>
 		                      </div>
 		                    </div>
