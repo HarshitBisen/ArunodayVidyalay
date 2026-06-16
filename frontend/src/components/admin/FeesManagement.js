@@ -71,7 +71,6 @@ export default function FeesManagement() {
 						setOfflineReceipt('');
 						setOfflineNote('');
 						setOfflineMonth(new Date().toISOString().slice(0,7));
-						setOfflineAmount('');
 						if (student.fee_details) {
 							setFeeDetails(student.fee_details);
 							setShowFeeModal(true);
@@ -82,7 +81,6 @@ export default function FeesManagement() {
 	            frequency: "monthly"
 	          });
 					setFeeDetails(res.data);
-					setOfflineAmount(String(res.data?.total_fee ?? ''));
 	          setShowFeeModal(true);
 	        } catch (error) {
 	          toast.error("Failed to calculate fee");
@@ -464,10 +462,7 @@ export default function FeesManagement() {
 		                                  <Label className="text-sm font-outfit font-semibold">Receipt Number *</Label>
 		                                  <Input value={offlineReceipt} onChange={(e) => setOfflineReceipt(e.target.value)} placeholder="Enter receipt number" />
 		                                </div>
-		                                <div className="grid gap-2">
-		                                  <Label className="text-sm font-outfit font-semibold">Amount (optional)</Label>
-		                                  <Input value={offlineAmount} onChange={(e) => setOfflineAmount(e.target.value)} placeholder={String(feeDetails.total_fee)} />
-		                                </div>
+																{/* Amount removed — admin marks full pending fees as paid */}
 		                                <div className="grid gap-2">
 		                                  <Label className="text-sm font-outfit font-semibold">Month (YYYY-MM)</Label>
 		                                  <Input value={offlineMonth} onChange={(e) => setOfflineMonth(e.target.value)} placeholder={new Date().toISOString().slice(0,7)} />
