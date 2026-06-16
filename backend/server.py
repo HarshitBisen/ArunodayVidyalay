@@ -213,6 +213,12 @@ class RazorpayPaymentVerificationRequest(BaseModel):
     razorpay_signature: str
     amount: float
 
+class OfflinePaymentRequest(BaseModel):
+    receipt: str
+    amount: Optional[float] = None
+    paid_for_month: Optional[str] = None
+    note: Optional[str] = None
+
 class ContactForm(BaseModel):
     name: str
     email: EmailStr
@@ -701,6 +707,68 @@ async def get_all_payments(current_user: dict = Depends(get_admin_user)):
     for payment in payments:
         payment['paid_at'] = payment['paid_at'].isoformat() if isinstance(payment['paid_at'], datetime) else payment['paid_at']
     return payments
+
+
+@api_router.post("/admin/students/{student_id}/mark-paid", response_model=dict)
+async def mark_student_paid_offline(student_id: str, request: OfflinePaymentRequest, current_user: dict = Depends(get_admin_user)):
+    # Admins can mark a student's fees as paid using an offline receipt number.
+    student = await db.students.find_one({"id": student_id}, {"_id": 0})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # Determine target month
+    now = datetime.now(timezone.utc)
+    target_month = request.paid_for_month or month_key(now)
+
+    # Prevent duplicate payments for the same month
+    existing_payment = await db.payments.find_one(
+        {"student_id": student_id, **payment_month_match_query(target_month)},
+        {"_id": 0, "id": 1},
+    )
+    if existing_payment:
+        raise HTTPException(status_code=400, detail="Fee already paid for this month")
+
+    # Build fee breakup and amount
+    fee = await build_fee_breakup(student, student_id)
+    payable = float(fee.get("total_fee") or 0)
+    if payable <= 0:
+        raise HTTPException(status_code=400, detail="Invalid payable amount")
+
+    if request.amount is not None and abs(request.amount - payable) > 0.01:
+        raise HTTPException(status_code=400, detail="Amount mismatch")
+
+    # Record payment with offline mode
+    payment = FeePayment(
+        student_id=student_id,
+        amount=payable,
+        payment_method="Offline",
+        transaction_id=request.receipt,
+        paid_for_month=target_month,
+        breakup=fee.get("breakup"),
+        status="success",
+    )
+
+    doc = payment.model_dump()
+    doc["paid_at"] = doc["paid_at"].isoformat()
+    doc["payment_gateway"] = "offline"
+    # Record admin who marked the payment
+    admin = await db.admins.find_one({"id": current_user.get("user_id")}, {"_id": 0, "id": 1, "name": 1, "email": 1})
+    admin_meta = None
+    if admin:
+        admin_meta = {"admin_id": admin.get("id"), "name": admin.get("name"), "email": admin.get("email")}
+    else:
+        admin_meta = {"admin_id": current_user.get("user_id")}
+    doc["admin_marked_by"] = admin_meta
+    if request.note:
+        doc["note"] = request.note
+
+    await db.payments.insert_one(doc)
+    await db.students.update_one(
+        {"id": student_id},
+        {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+
+    return {"message": "Offline payment recorded", "payment_id": payment.id, "admin_marked_by": admin_meta}
 
 # Student routes
 @api_router.get("/student/profile", response_model=StudentResponse)
