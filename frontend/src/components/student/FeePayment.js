@@ -180,7 +180,7 @@ export default function FeePayment() {
               <span className="font-outfit font-semibold text-gray-900">{profile.class_name}-{profile.section}</span>
             </div>
 		            <div className="flex justify-between items-center pb-4 border-b border-gray-200">
-		              <span className="font-outfit text-gray-600">Total Fee Amount</span>
+		              <span className="font-outfit text-gray-600">Total Fee Pending</span>
 		              <span className="font-outfit font-bold text-2xl text-sunny-navy">
 		                ₹{payableAmount.toLocaleString()}
 		              </span>
@@ -202,16 +202,14 @@ export default function FeePayment() {
 	          <div className="mt-6 rounded-2xl border border-sunny-border bg-sunny-cream/40 p-5">
 	            <h3 className="font-fredoka font-bold text-sunny-navy mb-4">Fee Breakup</h3>
 	            {feeLoading ? (
-	              <p className="font-outfit text-sm text-gray-600">Calculating...</p>
-	            ) : feeDetails?.message === 'Payment already exists' ? (
-	              <p className="font-outfit text-sm text-gray-600">Payment already exists for this student.</p>
-	            ) : feeDetails ? (
-	              <div className="space-y-2 text-sm font-outfit">
-	                <div className="flex items-center justify-between text-gray-700">
-	                  <span>Admission Fee</span>
-	                  <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.admission_fee ?? 0).toLocaleString()}</span>
-	                </div>
-	                <div className="flex items-center justify-between text-gray-700">
+                  <p className="font-outfit text-sm text-gray-600">Calculating...</p>
+                ) : feeDetails ? (
+                  <div className="space-y-2 text-sm font-outfit">
+                    <div className="flex items-center justify-between text-gray-700">
+                      <span>Admission Fee</span>
+                      <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.admission_fee ?? 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-gray-700">
 	                  <span>Annual Fee</span>
 	                  <span className="font-semibold text-gray-900 tabular-nums">₹{Number(feeDetails.annual_fee ?? 0).toLocaleString()}</span>
 	                </div>
