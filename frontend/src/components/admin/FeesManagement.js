@@ -24,10 +24,13 @@ export default function FeesManagement() {
 		    const [concessionPercent, setConcessionPercent] = useState('25');
 		    const [concessionReason, setConcessionReason] = useState('sibling');
 		    const [concessionLoading, setConcessionLoading] = useState(false);
-		    const [concessionSaving, setConcessionSaving] = useState(false);
-		    const [concessionLocked, setConcessionLocked] = useState(false);
-		    const [concessionAppliedBy, setConcessionAppliedBy] = useState(null);
-		    const [concessionAppliedAt, setConcessionAppliedAt] = useState(null);
+			    const [concessionSaving, setConcessionSaving] = useState(false);
+			    const [concessionLocked, setConcessionLocked] = useState(false);
+			    const [concessionAppliedBy, setConcessionAppliedBy] = useState(null);
+			    const [concessionAppliedAt, setConcessionAppliedAt] = useState(null);
+		    const displayFeeDetails =
+		      feeDetails?.total_fee === 0 && feeDetails?.paid_summary ? feeDetails.paid_summary : feeDetails;
+		    const isPaidSummary = Boolean(feeDetails?.total_fee === 0 && feeDetails?.paid_summary);
 
 	     useEffect(() => {
 	        fetchStudents();
@@ -39,10 +42,11 @@ export default function FeesManagement() {
             const studentsWithPendingFees = await Promise.all(
               response.data.map(async (student) => {
                 try {
-                  const feeRes = await api.post('/fees/calculate', {
-                    ...student,
-                    frequency: 'monthly',
-                  });
+	                  const feeRes = await api.post('/fees/calculate', {
+	                    ...student,
+	                    frequency: 'monthly',
+	                    include_paid_summary: true,
+	                  });
                   return {
                     ...student,
                     pending_fee: Number(feeRes.data?.total_fee ?? 0),
@@ -76,10 +80,11 @@ export default function FeesManagement() {
 							setShowFeeModal(true);
 							return;
 						}
-	          const res = await api.post("/fees/calculate", {
-	            ...student,
-	            frequency: "monthly"
-	          });
+		          const res = await api.post("/fees/calculate", {
+		            ...student,
+		            frequency: "monthly",
+		            include_paid_summary: true
+		          });
 					setFeeDetails(res.data);
 	          setShowFeeModal(true);
 	        } catch (error) {
@@ -363,15 +368,17 @@ export default function FeesManagement() {
 		            {showFeeModal && feeDetails && (
 		                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
 		                    <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl">
-		                      <div className="flex items-start justify-between gap-4 border-b bg-gradient-to-r from-sunny-blue/10 to-transparent px-6 py-4">
-		                        <div>
-		                          <h2 className="text-xl font-fredoka font-bold text-sunny-navy">
-		                            Fee Details
-		                          </h2>
-		                          <p className="mt-1 text-sm font-outfit text-gray-600">
-		                            Breakdown of pending fees
-		                          </p>
-		                        </div>
+			                      <div className="flex items-start justify-between gap-4 border-b bg-gradient-to-r from-sunny-blue/10 to-transparent px-6 py-4">
+			                        <div>
+			                          <h2 className="text-xl font-fredoka font-bold text-sunny-navy">
+			                            Fee Details
+			                          </h2>
+			                          <p className="mt-1 text-sm font-outfit text-gray-600">
+			                            {isPaidSummary
+			                              ? 'Cumulative fees paid this academic year'
+			                              : 'Breakdown of pending fees'}
+			                          </p>
+			                        </div>
 		                        <button
 		                          onClick={() => setShowFeeModal(false)}
 		                          className="ml-auto bg-gray-200 hover:bg-gray-300 text-gray-900 rounded-lg px-4 py-2 text-sm font-outfit font-semibold"
@@ -380,81 +387,83 @@ export default function FeesManagement() {
 		                        </button>
 		                      </div>
 
-		                      <div className="px-6 py-5">
-		                        <div className="space-y-3 text-sm">
-		                          <div className="flex items-center justify-between font-outfit text-gray-700">
-		                            <span>Admission Fee</span>
-		                            <span className="font-semibold tabular-nums text-gray-900">
-		                              ₹{feeDetails.admission_fee}
-		                            </span>
-		                          </div>
-		                          <div className="flex items-center justify-between font-outfit text-gray-700">
-		                            <span>Annual Fee</span>
-		                            <span className="font-semibold tabular-nums text-gray-900">
-		                              ₹{feeDetails.annual_fee}
-		                            </span>
-		                          </div>
-		                          <div className="flex items-center justify-between font-outfit text-gray-700">
-		                            <span>Tuition Fee</span>
-		                            <span className="font-semibold tabular-nums text-gray-900">
-		                              ₹{feeDetails.tuition_fee}
-		                            </span>
-		                          </div>
-		                          <div className="flex items-center justify-between font-outfit text-gray-700">
-		                            <span>Bus Fee</span>
-		                            <span className="font-semibold tabular-nums text-gray-900">
-		                              ₹{feeDetails.bus_fee}
-		                            </span>
-		                          </div>
-                              {Number(feeDetails.late_fee ?? 0) > 0 && (
-		                          <div className="flex items-center justify-between font-outfit text-gray-700">
-		                            <span>Late Fee</span>
-		                            <span className="font-semibold tabular-nums text-gray-900">
-		                              ₹{feeDetails.late_fee}
-		                            </span>
-		                          </div>
-                              )}
-		                          <div className="flex items-center justify-between font-outfit text-gray-700">
-		                            <span>Caution Money</span>
-		                            <span className="font-semibold tabular-nums text-gray-900">
-		                              ₹{feeDetails.caution_money}
-		                            </span>
-		                          </div>
+			                      <div className="px-6 py-5">
+			                        <div className="space-y-3 text-sm">
+			                          <div className="flex items-center justify-between font-outfit text-gray-700">
+			                            <span>Admission Fee</span>
+			                            <span className="font-semibold tabular-nums text-gray-900">
+			                              ₹{Number(displayFeeDetails?.admission_fee ?? 0).toLocaleString()}
+			                            </span>
+			                          </div>
+			                          <div className="flex items-center justify-between font-outfit text-gray-700">
+			                            <span>Annual Fee</span>
+			                            <span className="font-semibold tabular-nums text-gray-900">
+			                              ₹{Number(displayFeeDetails?.annual_fee ?? 0).toLocaleString()}
+			                            </span>
+			                          </div>
+			                          <div className="flex items-center justify-between font-outfit text-gray-700">
+			                            <span>Tuition Fee</span>
+			                            <span className="font-semibold tabular-nums text-gray-900">
+			                              ₹{Number(displayFeeDetails?.tuition_fee ?? 0).toLocaleString()}
+			                            </span>
+			                          </div>
+			                          <div className="flex items-center justify-between font-outfit text-gray-700">
+			                            <span>Bus Fee</span>
+			                            <span className="font-semibold tabular-nums text-gray-900">
+			                              ₹{Number(displayFeeDetails?.bus_fee ?? 0).toLocaleString()}
+			                            </span>
+			                          </div>
+	                              {Number(displayFeeDetails?.late_fee ?? 0) > 0 && (
+			                          <div className="flex items-center justify-between font-outfit text-gray-700">
+			                            <span>Late Fee</span>
+			                            <span className="font-semibold tabular-nums text-gray-900">
+			                              ₹{Number(displayFeeDetails?.late_fee ?? 0).toLocaleString()}
+			                            </span>
+			                          </div>
+	                              )}
+			                          <div className="flex items-center justify-between font-outfit text-gray-700">
+			                            <span>Caution Money</span>
+			                            <span className="font-semibold tabular-nums text-gray-900">
+			                              ₹{Number(displayFeeDetails?.caution_money ?? 0).toLocaleString()}
+			                            </span>
+			                          </div>
 
-			                          {"concession" in feeDetails && (
-			                            <div>
-			                              <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 font-outfit text-emerald-900">
-			                                <span className="font-semibold">Concession</span>
-			                                <span className="font-bold tabular-nums">- ₹{feeDetails.concession}</span>
-			                              </div>
-			                              {feeDetails?.breakup?.meta?.concession?.applied_by && (
-			                                <div className="mt-1 px-1 text-xs font-outfit text-emerald-900/80">
-			                                  Applied by{' '}
-			                                  {feeDetails.breakup.meta.concession.applied_by?.name ||
-			                                    feeDetails.breakup.meta.concession.applied_by?.email ||
-			                                    '—'}
-			                                  {feeDetails?.breakup?.meta?.concession?.applied_at
-			                                    ? ` on ${new Date(feeDetails.breakup.meta.concession.applied_at).toLocaleString()}`
-			                                    : ''}
-			                                </div>
-			                              )}
-			                            </div>
-			                          )}
+				                          {"concession" in (displayFeeDetails || {}) && (
+				                            <div>
+				                              <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 font-outfit text-emerald-900">
+				                                <span className="font-semibold">Concession</span>
+				                                <span className="font-bold tabular-nums">- ₹{Number(displayFeeDetails?.concession ?? 0).toLocaleString()}</span>
+				                              </div>
+				                              {displayFeeDetails?.breakup?.meta?.concession?.applied_by && (
+				                                <div className="mt-1 px-1 text-xs font-outfit text-emerald-900/80">
+				                                  Applied by{' '}
+				                                  {displayFeeDetails.breakup.meta.concession.applied_by?.name ||
+				                                    displayFeeDetails.breakup.meta.concession.applied_by?.email ||
+				                                    '—'}
+				                                  {displayFeeDetails?.breakup?.meta?.concession?.applied_at
+				                                    ? ` on ${new Date(displayFeeDetails.breakup.meta.concession.applied_at).toLocaleString()}`
+				                                    : ''}
+				                                </div>
+				                              )}
+				                            </div>
+				                          )}
 		                        </div>
 
 		                        <div className="my-5 h-px bg-gray-100" />
 
-		                        <div className="space-y-4">
-		                          <div className="flex items-center justify-between rounded-xl bg-sunny-navy px-4 py-3 text-white">
-		                            <div className="font-outfit">
-		                              <div className="text-xs opacity-90">Total Pending</div>
-		                              <div className="text-lg font-bold tabular-nums">
-		                                ₹{feeDetails.total_fee}
-		                              </div>
-		                            </div>
-		                          </div>
+			                        <div className="space-y-4">
+			                          <div className="flex items-center justify-between rounded-xl bg-sunny-navy px-4 py-3 text-white">
+			                            <div className="font-outfit">
+			                              <div className="text-xs opacity-90">
+			                                {isPaidSummary ? 'Total Paid' : 'Total Pending'}
+			                              </div>
+			                              <div className="text-lg font-bold tabular-nums">
+			                                ₹{Number(displayFeeDetails?.total_fee ?? 0).toLocaleString()}
+			                              </div>
+			                            </div>
+			                          </div>
 
-		                          {Number(feeDetails.total_fee) > 0 && (
+			                          {Number(feeDetails.total_fee) > 0 && (
 		                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
 		                              <h3 className="font-fredoka font-semibold text-sunny-navy">Mark as Cash Payment</h3>
 		                              <div className="grid grid-cols-2 gap-3">

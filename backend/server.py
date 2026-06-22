@@ -191,7 +191,7 @@ class FeePayment(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     student_id: str
     amount: float
-    payment_method: str = "Bank of Baroda PayPoint"
+    payment_method: str = "Bank of Baroda Payment Gateway"
     transaction_id: str
     status: str = "success"
     paid_for_month: Optional[str] = None  # YYYY-MM
@@ -493,11 +493,25 @@ async def get_all_students(unpaid_fees: bool = False, current_user: dict = Depen
         if not student.get("academic_year"):
             try:
                 created = student.get("created_at")
-                created_dt = created if isinstance(created, datetime) else datetime.fromisoformat(created)
+                if isinstance(created, datetime):
+                    created_dt = created
+                else:
+                    iso_str = str(created).replace('Z', '+00:00')
+                    created_dt = datetime.fromisoformat(iso_str)
             except Exception:
                 created_dt = datetime.now(timezone.utc)
             student["academic_year"] = academic_year_for(created_dt)
         student["fee_status"] = "paid" if student.get("id") in paid_student_ids else "pending"
+        # Populate fee_amount for dashboard: calculate only when pending to avoid overriding paid snapshots
+        try:
+            if student.get("fee_status") == "pending":
+                fee_info = await build_fee_breakup(student, student.get("id"))
+                student["fee_amount"] = float(fee_info.get("total_fee") or 0)
+            else:
+                student["fee_amount"] = 0.0
+        except Exception:
+            # On error, leave fee_amount as-is or set to 0
+            student["fee_amount"] = float(student.get("fee_amount") or 0)
     return students
 
 @api_router.post("/admin/students", response_model=StudentResponse)
@@ -785,7 +799,11 @@ async def get_student_profile(current_user: dict = Depends(get_current_user)):
     if not student.get("academic_year"):
         try:
             created = student.get("created_at")
-            created_dt = created if isinstance(created, datetime) else datetime.fromisoformat(created)
+            if isinstance(created, datetime):
+                created_dt = created
+            else:
+                iso_str = str(created).replace('Z', '+00:00')
+                created_dt = datetime.fromisoformat(iso_str)
         except Exception:
             created_dt = datetime.now(timezone.utc)
         student["academic_year"] = academic_year_for(created_dt)
@@ -797,6 +815,16 @@ async def get_student_profile(current_user: dict = Depends(get_current_user)):
         {"_id": 0, "id": 1},
     )
     student["fee_status"] = "paid" if payment else "pending"
+    # Populate fee_amount for the profile view
+    try:
+        if student.get("fee_status") == "pending":
+            fee_info = await build_fee_breakup(student, student.get("id"))
+            student["fee_amount"] = float(fee_info.get("total_fee") or 0)
+        else:
+            student["fee_amount"] = 0.0
+    except Exception:
+        student["fee_amount"] = float(student.get("fee_amount") or 0)
+
     return StudentResponse(**student)
 
 @api_router.post("/razorpay/create-order")
@@ -1103,10 +1131,126 @@ def payment_month_value(payment: dict) -> Optional[datetime]:
         if isinstance(paid_at, datetime):
             return month_start(paid_at)
         if isinstance(paid_at, str) and paid_at:
-            return month_start(datetime.fromisoformat(paid_at))
+            # Handle ISO 8601 with Z suffix
+            iso_str = paid_at.replace('Z', '+00:00')
+            return month_start(datetime.fromisoformat(iso_str))
     except Exception:
         return None
     return None
+
+def payment_breakup_sum(payment: dict) -> dict:
+    breakup = payment.get("breakup") or {}
+    sum_items = breakup.get("sum") or {}
+    return sum_items if isinstance(sum_items, dict) else {}
+
+def payment_breakup_subs(payment: dict) -> dict:
+    breakup = payment.get("breakup") or {}
+    subs_items = breakup.get("subs") or {}
+    return subs_items if isinstance(subs_items, dict) else {}
+
+def parse_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+async def build_paid_fee_summary(student: dict, student_id: str) -> dict:
+    created_raw = student.get("created_at")
+    try:
+        if isinstance(created_raw, datetime):
+            created_at = created_raw
+        else:
+            iso_str = str(created_raw).replace('Z', '+00:00')
+            created_at = datetime.fromisoformat(iso_str)
+    except Exception:
+        created_at = datetime.now(timezone.utc)
+
+    current_month = month_start(datetime.now(timezone.utc))
+    join_month = month_start(created_at)
+    academic_start = academic_year_start(student.get("academic_year"))
+    base_due_month = academic_start or join_month
+    if base_due_month < join_month:
+        base_due_month = join_month
+
+    payments = await db.payments.find(
+        {"student_id": student_id},
+        {"_id": 0, "paid_for_month": 1, "paid_at": 1, "status": 1, "amount": 1, "breakup": 1},
+    ).to_list(1000)
+
+    sum_items = {
+        "admission_fee": 0.0,
+        "annual_fee": 0.0,
+        "tuition_fee": 0.0,
+        "bus_fee": 0.0,
+        "late_fee": 0.0,
+        "caution_money": 0.0,
+        "other_fee": 0.0,
+    }
+    subs_items = {
+        "concession": 0.0,
+    }
+
+    for payment in payments:
+        if str(payment.get("status") or "success").lower() != "success":
+            continue
+
+        payment_month = payment_month_value(payment)
+        if payment_month is None or payment_month < base_due_month or payment_month > current_month:
+            continue
+
+        breakup_sum = payment_breakup_sum(payment)
+        breakup_subs = payment_breakup_subs(payment)
+
+        if breakup_sum:
+            for key, raw_value in breakup_sum.items():
+                try:
+                    amount = float(raw_value or 0)
+                except Exception:
+                    amount = 0.0
+                if key in sum_items:
+                    sum_items[key] += amount
+                else:
+                    sum_items["other_fee"] += amount
+        else:
+            try:
+                sum_items["other_fee"] += float(payment.get("amount") or 0)
+            except Exception:
+                pass
+
+        for key, raw_value in breakup_subs.items():
+            try:
+                amount = float(raw_value or 0)
+            except Exception:
+                amount = 0.0
+            if key in subs_items:
+                subs_items[key] += amount
+
+    sum_items = {key: round(value, 2) for key, value in sum_items.items()}
+    subs_items = {key: round(value, 2) for key, value in subs_items.items()}
+    total_paid = round(sum(sum_items.values()) - sum(subs_items.values()), 2)
+
+    return {
+        "total_paid": total_paid,
+        "tuition_fee": sum_items["tuition_fee"],
+        "bus_fee": sum_items["bus_fee"],
+        "annual_fee": sum_items["annual_fee"],
+        "admission_fee": sum_items["admission_fee"],
+        "late_fee": sum_items["late_fee"],
+        "caution_money": sum_items["caution_money"],
+        "concession": subs_items["concession"],
+        "concession_percent": None,
+        "concession_reason": None,
+        "breakup": {
+            "sum": sum_items,
+            "subs": subs_items,
+            "total": total_paid,
+            "meta": {
+                "period": {
+                    "from": month_key(base_due_month),
+                    "to": month_key(current_month),
+                },
+            },
+        },
+    }
 
 def calculate_late_fee(base_due_date: datetime, now: datetime) -> float:
     # Rules:
@@ -1129,7 +1273,12 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
 
     created_raw = student.get("created_at")
     try:
-        created_at = created_raw if isinstance(created_raw, datetime) else datetime.fromisoformat(created_raw)
+        if isinstance(created_raw, datetime):
+            created_at = created_raw
+        else:
+            # Handle ISO 8601 with Z suffix (replace Z with +00:00)
+            iso_str = str(created_raw).replace('Z', '+00:00')
+            created_at = datetime.fromisoformat(iso_str)
     except Exception:
         created_at = datetime.now(timezone.utc)
 
@@ -1142,27 +1291,51 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     if base_due_month < join_month:
         base_due_month = join_month
 
-    payments = await db.payments.find({"student_id": student_id}, {"_id": 0, "paid_for_month": 1, "paid_at": 1}).to_list(1000)
+    payments = await db.payments.find(
+        {"student_id": student_id},
+        {"_id": 0, "paid_for_month": 1, "paid_at": 1, "status": 1, "breakup": 1},
+    ).to_list(1000)
     paid_months = {
         payment_month
         for payment in payments
         if (payment_month := payment_month_value(payment)) is not None
     }
 
-    oldest_unpaid_month = base_due_month
-    while oldest_unpaid_month in paid_months and oldest_unpaid_month <= current_month:
-        oldest_unpaid_month = add_months(oldest_unpaid_month, 1)
+    due_month_list = []
+    cursor_month = base_due_month
+    while cursor_month <= current_month:
+        if cursor_month not in paid_months:
+            due_month_list.append(cursor_month)
+        cursor_month = add_months(cursor_month, 1)
 
-    if oldest_unpaid_month > current_month:
-        oldest_unpaid_month = current_month
-
-    due_months = max(1, months_between(oldest_unpaid_month, current_month) + 1)
+    oldest_unpaid_month = due_month_list[0] if due_month_list else current_month
+    due_months = len(due_month_list)
 
     if student.get("new_student") == 'yes' and is_within_academic_year(created_at):
-        admission = 1000
+        admission_paid = any(
+            float(payment_breakup_sum(payment).get("admission_fee", 0) or 0) > 0
+            for payment in payments
+            if str(payment.get("status") or "success").lower() == "success"
+        )
+        if not admission_paid:
+            admission = 1000
         total += admission
 
-    annual = 1000
+    annual_paid = False
+    academic_year_end = add_months(base_due_month, 12) if base_due_month else None
+    for payment in payments:
+        if str(payment.get("status") or "success").lower() != "success":
+            continue
+        payment_month = payment_month_value(payment)
+        if payment_month is None:
+            continue
+        if academic_year_end and not (base_due_month <= payment_month < academic_year_end):
+            continue
+        if float(payment_breakup_sum(payment).get("annual_fee", 0) or 0) > 0:
+            annual_paid = True
+            break
+
+    annual = 0 if annual_paid else 1000
     total += annual
 
     class_name = student.get("class_name")
@@ -1218,7 +1391,7 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     total += bus_fee_total
 
     # Late fee: monthly fine based on current date when unpaid.
-    late_fee = calculate_late_fee(oldest_unpaid_month, now)
+    late_fee = calculate_late_fee(oldest_unpaid_month, now) if due_months > 0 else 0.0
     total += late_fee
 
     try:
@@ -1277,8 +1450,6 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
             "total": total_fee,
             "meta": {
                 **({"concession": concession_meta} if concession_meta else {}),
-                "due_months": due_months,
-                "oldest_unpaid_month": month_key(oldest_unpaid_month),
             },
         },
     }
@@ -1291,6 +1462,8 @@ async def calculate_fee(student: dict):
     if not student_id:
         raise HTTPException(status_code=400, detail="Missing student id")
 
+    include_paid_summary = parse_bool(student.get("include_paid_summary"))
+
     # -------- Check existing payment (current month) --------
     current_month = month_key(datetime.now(timezone.utc))
     payment = await db.payments.find_one(
@@ -1301,34 +1474,35 @@ async def calculate_fee(student: dict):
     if payment:
         if isinstance(payment.get("paid_at"), datetime):
             payment["paid_at"] = payment["paid_at"].isoformat()
-        return {
+
+        breakup = payment.get("breakup") or {}
+        sum_items = breakup.get("sum") or {}
+        subs_items = breakup.get("subs") or {}
+        meta = breakup.get("meta") or {}
+        concession_meta = meta.get("concession") or {}
+
+        response = {
             "message": "Payment already exists",
             "payment": payment,
             "total_fee": 0,
-            "tuition_fee": 0,
-            "bus_fee": 0,
-            "annual_fee": 0,
-            "admission_fee": 0,
-            "late_fee": 0,
-            "caution_money": 0,
-            "concession": 0,
-            "concession_percent": None,
-            "concession_reason": None,
-            "breakup": {
-                "sum": {
-                    "admission_fee": 0,
-                    "annual_fee": 0,
-                    "tuition_fee": 0,
-                    "bus_fee": 0,
-                    "late_fee": 0,
-                    "caution_money": 0,
-                },
-                "subs": {},
-                "total": 0,
-                "meta": {},
-            },
+            "tuition_fee": float(sum_items.get("tuition_fee", 0)),
+            "bus_fee": float(sum_items.get("bus_fee", 0)),
+            "annual_fee": float(sum_items.get("annual_fee", 0)),
+            "admission_fee": float(sum_items.get("admission_fee", 0)),
+            "late_fee": float(sum_items.get("late_fee", 0)),
+            "caution_money": float(sum_items.get("caution_money", 0)),
+            "concession": float(subs_items.get("concession", 0)),
+            "concession_percent": concession_meta.get("percent") if concession_meta else None,
+            "concession_reason": concession_meta.get("reason") if concession_meta else None,
+            "breakup": breakup,
         }
-    return await build_fee_breakup(student, student_id)
+        if include_paid_summary:
+            response["paid_summary"] = await build_paid_fee_summary(student, student_id)
+        return response
+    fee_breakup = await build_fee_breakup(student, student_id)
+    if include_paid_summary:
+        fee_breakup["paid_summary"] = await build_paid_fee_summary(student, student_id)
+    return fee_breakup
     
 async def calculate_concession(student):
     # fetch data from concessions collection

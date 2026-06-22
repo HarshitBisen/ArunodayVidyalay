@@ -70,7 +70,7 @@ export default function StudentOverview() {
           <h3 className="text-2xl font-fredoka font-bold text-sunny-navy mb-6">Fee Status</h3>
 	          <div className="flex items-center justify-between">
 	            <div>
-	              <p className="font-outfit text-gray-600 mb-2">Total Fee Amount</p>
+	              <p className="font-outfit text-gray-600 mb-2">Total Fee Pending</p>
 	              <p className="text-4xl font-fredoka font-bold text-sunny-navy">
 	                ₹{feeAmount.toLocaleString()}
 	              </p>
