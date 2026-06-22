@@ -76,9 +76,9 @@ CLASS_ALIASES = {
 CONCESSION_SHEETS = {
     "sibbling": ("sibling", 50),
     "sibling": ("sibling", 50),
-    "staff": ("staff", 100),
-    "sponsered": ("government sponsored", 100),
-    "sponsored": ("government sponsored", 100),
+    "staff": ("staff", 50),
+    "sponsered": ("government sponsored", 50),
+    "sponsored": ("government sponsored", 50),
 }
 
 
@@ -359,9 +359,9 @@ INLINE_CONCESSION_LABELS: Dict[str, Tuple[str, int]] = {
     "sibblings": ("sibling", 50),
     "sibling": ("sibling", 50),
     "siblings": ("sibling", 50),
-    "staff": ("staff", 100),
-    "sponsered": ("government sponsored", 100),
-    "sponsored": ("government sponsored", 100),
+    "staff": ("staff", 50),
+    "sponsered": ("government sponsored", 50),
+    "sponsored": ("government sponsored", 50),
 }
 
 
@@ -551,16 +551,10 @@ def extract_payments_from_block(
         # paid_at: prefer the tuition fee date; fall back to bus fee date.
         paid_at = (tuition[2] if tuition else None) or (bus[2] if bus else None)
 
-        # paid_for_month: every Rs. entry in this workbook has a parseable
-        # payment date right beside it, so use that directly - it's ground
-        # truth. The month-header row is NOT used here because it's
-        # misaligned by one column on some sheets, which would mislabel
-        # the month even though the payment itself stays correctly split
-        # by its own column (billing-cycle slot).
-        if paid_at:
-            paid_for_month = f"{paid_at.year:04d}-{paid_at.month:02d}"
-        else:
-            paid_for_month = nearest_month_for_col(months, col_index)
+        # paid_for_month should come from the fee month column,
+        # not from the date on which the payment was made.
+        paid_for_month = nearest_month_for_col(months, col_index)
+
         if not paid_for_month:
             warnings.append(
                 f"No paid_for_month found for {enrollment_number} payment in column {col_index}"
@@ -684,12 +678,23 @@ def extract_students_and_payments(
             student_id = str(uuid.uuid4())
             phone = extract_phone(block, 0, len(block))
             parent_name = extract_parent_name(block, 0, len(block))
+            
             now = datetime.now(timezone.utc).isoformat()
-            created_at = (
-                f"{academic_year[:4]}-04-01T00:00:00+00:00"
-                if re.match(r"^\d{4}", academic_year)
-                else now
+
+            student_payments = extract_payments_from_block(
+                block,
+                student_id,
+                enrollment_number,
+                months,
+                now,
+                warnings,
             )
+
+            created_at = now
+            for payment in student_payments:
+                if payment["breakup"]["sum"]["tuition_fee"] > 0 and payment.get("paid_for_month"):
+                    created_at = f'{payment["paid_for_month"]}-01T00:00:00+00:00'
+                    break
 
             email = student_email_for(raw_name)
             plain_password = student_password_for(raw_name)
@@ -729,11 +734,7 @@ def extract_students_and_payments(
             }
             students.append(student)
 
-            payments.extend(
-                extract_payments_from_block(
-                    block, student_id, enrollment_number, months, created_at, warnings
-                )
-            )
+            payments.extend(student_payments)
 
             # Extract concession label written inline in the student block (col 1)
             concession_info = extract_concession_from_block(block)
