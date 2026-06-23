@@ -82,3 +82,24 @@ code {
         border-bottom-color: inherit;
     }
 }
+
+@layer utilities {
+    @keyframes chip-pop {
+        0% { transform: scale(0.92); opacity: 0; }
+        60% { transform: scale(1.03); opacity: 1; }
+        100% { transform: scale(1); opacity: 1; }
+    }
+
+    .chip-pop {
+        animation: chip-pop 260ms cubic-bezier(.2,.9,.2,1);
+    }
+
+    @keyframes slide-fade {
+        0% { transform: translateY(8px) scale(0.98); opacity: 0; }
+        100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    .slide-fade-in {
+        animation: slide-fade 200ms cubic-bezier(.2,.9,.2,1) both;
+    }
+}
