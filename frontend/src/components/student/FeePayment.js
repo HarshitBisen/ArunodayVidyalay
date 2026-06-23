@@ -146,6 +146,7 @@ export default function FeePayment() {
   const feeStatus = profile?.fee_status ?? 'pending';
   const payableAmount = Number(feeDetails?.total_fee ?? feeAmount);
   const effectiveStatus = feeDetails?.message === 'Payment already exists' ? 'paid' : feeStatus;
+  const breakupHeading = effectiveStatus === 'paid' ? 'Last Transaction Breakup' : 'Pending Fee Breakup';
 
   return (
     <div data-testid="fee-payment">
@@ -200,7 +201,7 @@ export default function FeePayment() {
 	          </div>
 
 	          <div className="mt-6 rounded-2xl border border-sunny-border bg-sunny-cream/40 p-5">
-	            <h3 className="font-fredoka font-bold text-sunny-navy mb-4">Fee Breakup</h3>
+            <h3 className="font-fredoka font-bold text-sunny-navy mb-4">{breakupHeading}</h3>
 	            {feeLoading ? (
                   <p className="font-outfit text-sm text-gray-600">Calculating...</p>
                 ) : feeDetails ? (
@@ -324,7 +325,7 @@ export default function FeePayment() {
 		              </div>
               <div className="flex justify-between items-center">
                 <span className="font-outfit text-gray-600">Payment Gateway</span>
-                <span className="font-outfit font-semibold text-gray-900">Bank of Baroda PayPoint</span>
+                <span className="font-outfit font-semibold text-gray-900">Bank of Baroda</span>
               </div>
             </div>
 
