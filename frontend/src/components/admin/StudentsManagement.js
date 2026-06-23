@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Key, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Edit, Trash2, Key, Eye, EyeOff, Search, ChevronDown, X, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/utils/api';
 import { Button } from '@/components/ui/button';
@@ -28,7 +28,13 @@ const getAcademicYearOptions = (count = 3) => {
 
 export default function StudentsManagement() {
   const academicYearOptions = getAcademicYearOptions(3);
-  const [students, setStudents] = useState([]);
+	const [students, setStudents] = useState([]);
+	const [searchQuery, setSearchQuery] = useState('');
+	const [selectedClasses, setSelectedClasses] = useState([]);
+	const [classDropdownOpen, setClassDropdownOpen] = useState(false);
+	const [classSearchQuery, setClassSearchQuery] = useState('');
+	const classDropdownRef = useRef(null);
+	const [searchFocused, setSearchFocused] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -58,6 +64,18 @@ export default function StudentsManagement() {
   useEffect(() => {
     fetchStudents();
   }, []);
+
+	// close class dropdown on outside click
+	useEffect(() => {
+		const onClick = (e) => {
+			if (!classDropdownRef.current) return;
+			if (!classDropdownRef.current.contains(e.target)) {
+				setClassDropdownOpen(false);
+			}
+		};
+		document.addEventListener('click', onClick);
+		return () => document.removeEventListener('click', onClick);
+	}, [classDropdownRef]);
 
   const fetchStudents = async () => {
     try {
@@ -205,9 +223,35 @@ export default function StudentsManagement() {
     setShowAddModal(true);
   };
 
-  if (loading) {
-    return <div className="font-outfit">Loading...</div>;
-  }
+	if (loading) {
+		return <div className="font-outfit">Loading...</div>;
+	}
+
+	const classOptions = [
+		{ value: 'Nursery', label: 'Nursery' },
+		{ value: 'JKG', label: 'JKG' },
+		{ value: 'SKG', label: 'SKG' },
+		...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `Class ${i + 1}` })),
+	];
+
+	const filteredStudents = students.filter((student) => {
+		// class multi-select filter
+		if (selectedClasses.length > 0) {
+			const sClass = (student.class_name || '').toString();
+			if (!selectedClasses.includes(sClass)) return false;
+		}
+
+		// search filter (name, enrollment_number, roll_number)
+		if (searchQuery && searchQuery.trim() !== '') {
+			const q = searchQuery.trim().toLowerCase();
+			const name = (student.name || '').toLowerCase();
+			const enroll = (student.enrollment_number || '').toLowerCase();
+			const roll = (student.roll_number || '').toLowerCase();
+			if (!name.includes(q) && !enroll.includes(q) && !roll.includes(q)) return false;
+		}
+
+		return true;
+	});
 
   return (
     <div data-testid="students-management">
@@ -275,7 +319,7 @@ export default function StudentsManagement() {
                 </div>
 	                <div>
 		                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Password *</label>
-		                  <div className="relative">
+						<div className="relative overflow-hidden rounded-xl">
 			                  <Input
 			                    className="bg-white border-sunny-border shadow-sm focus-visible:ring-sunny-blue/40 pr-12"
 			                    type={showStudentPassword ? 'text' : 'password'}
@@ -512,7 +556,125 @@ export default function StudentsManagement() {
         </Dialog>
       </div>
 
-      {/* Students Table */}
+
+			{/* Filter Card */}
+			<div className="bg-gradient-to-r from-sunny-cream/40 via-white to-sunny-blue/5 rounded-2xl shadow-lg border border-sunny-border p-4 mb-4">
+				<div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+					{/* Search */}
+					<div className="w-full md:flex-1 min-w-0">
+						<div className="relative overflow-hidden rounded-xl">
+							<div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+								<Search size={18} />
+							</div>
+							<Input
+								placeholder="Search students by name or enrollment"
+								value={searchQuery}
+								onChange={(e) => setSearchQuery(e.target.value)}
+								onFocus={() => setSearchFocused(true)}
+								onBlur={() => setSearchFocused(false)}
+								className={`pl-10 rounded-xl border border-sunny-border w-full h-11 md:h-12 shadow-sm transition transform origin-left ${searchFocused ? 'scale-105 shadow-lg' : ''} bg-white/95 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-sunny-blue/40`}
+								data-testid="student-search"
+							/>
+							{searchQuery && (
+								<button
+									type="button"
+									onClick={() => setSearchQuery('')}
+									className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1"
+									aria-label="Clear search"
+								>
+									<X size={14} />
+								</button>
+							)}
+						</div>
+					</div>
+
+					{/* Class multi-select */}
+					<div className="w-full md:w-80 md:flex-shrink-0">
+						<div className="relative" ref={classDropdownRef}>
+							<button
+								type="button"
+								onClick={() => setClassDropdownOpen((v) => !v)}
+								className="w-full flex items-start gap-2 rounded-2xl border border-slate-100 bg-white px-3 py-2 shadow-sm hover:shadow-md transition transform hover:-translate-y-0.5 overflow-hidden"
+								aria-expanded={classDropdownOpen}
+								data-testid="class-dropdown-toggle"
+							>
+								<div className="flex-1 text-sm text-gray-700">
+									{selectedClasses.length === 0 ? (
+										<span className="text-gray-500">Classes</span>
+									) : (
+										<div className="flex flex-wrap items-start gap-2 max-h-32 overflow-auto">
+											{selectedClasses.map((val) => {
+												const opt = classOptions.find((o) => o.value === val);
+												return (
+													<span key={val} className="inline-flex items-center gap-1 bg-sunny-cream/70 text-sunny-navy rounded-full px-2 py-0.5 text-xs shadow-sm transition transform hover:scale-105 chip-pop">
+														{opt ? opt.label : val}
+														<button
+															onClick={(e) => { e.stopPropagation(); setSelectedClasses((prev) => prev.filter((c) => c !== val)); }}
+															className="ml-1 p-0.5 text-sunny-navy hover:text-sunny-navy/80"
+															aria-label={`Remove ${val}`}
+														>
+															<X size={12} />
+														</button>
+													</span>
+												)
+											})}
+										</div>
+									)}
+								</div>
+								<ChevronDown size={18} className="text-gray-400 mt-1" />
+							</button>
+
+							<div
+								className={`absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl z-50 border p-3 ${classDropdownOpen ? 'slide-fade-in' : ''}`}
+								style={{
+									opacity: classDropdownOpen ? 1 : 0,
+									transform: classDropdownOpen ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.98)',
+									transition: 'opacity 220ms cubic-bezier(.2,.9,.2,1), transform 220ms cubic-bezier(.2,.9,.2,1)',
+									pointerEvents: classDropdownOpen ? 'auto' : 'none',
+									boxShadow: classDropdownOpen ? '0 18px 40px rgba(2,6,23,0.12)' : undefined,
+								}}
+							>
+								<div className="flex items-center gap-2 mb-3">
+									<Input
+										placeholder="Search classes"
+										value={classSearchQuery}
+										onChange={(e) => setClassSearchQuery(e.target.value)}
+										className="rounded-md"
+										data-testid="class-search"
+									/>
+									<div className="ml-2 flex gap-2">
+										<button type="button" onClick={() => setSelectedClasses(classOptions.map(o => o.value))} className="text-sm text-sky-600 hover:underline">Select All</button>
+										<button type="button" onClick={() => setSelectedClasses([])} className="text-sm text-gray-400 hover:underline">Clear</button>
+									</div>
+								</div>
+								<div className="max-h-56 overflow-auto divide-y">
+									{classOptions.filter(o => o.label.toLowerCase().includes(classSearchQuery.toLowerCase())).map((opt) => (
+										<label key={opt.value} className="flex items-center justify-between gap-2 py-2 px-2 hover:bg-gray-50 rounded-md cursor-pointer">
+											<div className="flex items-center gap-3">
+												<input
+													type="checkbox"
+													checked={selectedClasses.includes(opt.value)}
+													onChange={() => {
+														if (selectedClasses.includes(opt.value)) setSelectedClasses(prev => prev.filter(v => v !== opt.value));
+														else setSelectedClasses(prev => [...prev, opt.value]);
+													}}
+													className="h-4 w-4 accent-sky-600"
+												/>
+												<span className="text-sm text-gray-700">{opt.label}</span>
+											</div>
+											{selectedClasses.includes(opt.value) && (
+												<Check size={16} className="text-sky-600" />
+											)}
+										</label>
+									))}
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			{/* Students Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden" data-testid="students-table">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -527,7 +689,7 @@ export default function StudentsManagement() {
 	              </tr>
             </thead>
             <tbody>
-              {students.map((student) => (
+			  {filteredStudents.map((student) => (
                 <tr key={student.id} className="border-t hover:bg-gray-50">
                   <td className="font-outfit text-gray-900 py-3 px-4">{student.enrollment_number}</td>
                   <td className="font-outfit text-gray-900 py-3 px-4">{student.name}</td>
@@ -829,7 +991,7 @@ export default function StudentsManagement() {
             </Button>
           </form>
         </DialogContent>
-      </Dialog>
-    </div>
+		</Dialog>
+	</div>
   );
 }
