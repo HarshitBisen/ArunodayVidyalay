@@ -28,9 +28,12 @@ export default function FeesManagement() {
 			    const [concessionLocked, setConcessionLocked] = useState(false);
 			    const [concessionAppliedBy, setConcessionAppliedBy] = useState(null);
 			    const [concessionAppliedAt, setConcessionAppliedAt] = useState(null);
-		    const displayFeeDetails =
-		      feeDetails?.total_fee === 0 && feeDetails?.paid_summary ? feeDetails.paid_summary : feeDetails;
-		    const isPaidSummary = Boolean(feeDetails?.total_fee === 0 && feeDetails?.paid_summary);
+			    const displayFeeDetails =
+			      feeDetails?.total_fee === 0 && feeDetails?.paid_summary ? feeDetails.paid_summary : feeDetails;
+			    const isPaidSummary = Boolean(feeDetails?.total_fee === 0 && feeDetails?.paid_summary);
+			    const displayTotal = isPaidSummary
+			      ? Number(displayFeeDetails?.total_paid ?? 0)
+			      : Number(displayFeeDetails?.total_fee ?? 0);
 
 	     useEffect(() => {
 	        fetchStudents();
@@ -70,23 +73,20 @@ export default function FeesManagement() {
       };
 
 			const openFeeModal = async (student) => {
-	        try {
-						setSelectedStudent(student);
-						setOfflineReceipt('');
-						setOfflineNote('');
-						setOfflineMonth(new Date().toISOString().slice(0,7));
-						if (student.fee_details) {
-							setFeeDetails(student.fee_details);
-							setShowFeeModal(true);
-							return;
-						}
+		        try {
+							setSelectedStudent(student);
+							setOfflineReceipt('');
+							setOfflineNote('');
+							setOfflineMonth(new Date().toISOString().slice(0,7));
+		          const freshStudentsRes = await api.get('/admin/students');
+		          const freshStudent = freshStudentsRes.data.find((item) => item.id === student.id) || student;
 		          const res = await api.post("/fees/calculate", {
-		            ...student,
+		            ...freshStudent,
 		            frequency: "monthly",
 		            include_paid_summary: true
 		          });
-					setFeeDetails(res.data);
-	          setShowFeeModal(true);
+						setFeeDetails(res.data);
+		          setShowFeeModal(true);
 	        } catch (error) {
 	          toast.error("Failed to calculate fee");
 	        }
@@ -458,7 +458,7 @@ export default function FeesManagement() {
 			                                {isPaidSummary ? 'Total Paid' : 'Total Pending'}
 			                              </div>
 			                              <div className="text-lg font-bold tabular-nums">
-			                                ₹{Number(displayFeeDetails?.total_fee ?? 0).toLocaleString()}
+			                                ₹{displayTotal.toLocaleString()}
 			                              </div>
 			                            </div>
 			                          </div>

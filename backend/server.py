@@ -1365,29 +1365,35 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     tuition_total = tuition * due_months
     total += tuition_total
 
-    distance = student.get("distance_school", 0) or 0
+    bus_opted = str(student.get("bus_opted") or "").strip().lower()
+    distance = student.get("distance_school")
     try:
         distance = max(0.0, float(distance))
     except Exception:
         distance = 0.0
 
-    # Bus fee is waived for June only.
-    if current_month.month == 6:
-        bus_fee = 0
-    elif distance == 0.0:
-        bus_fee = 0
-    elif distance < 2.5:
-        bus_fee = 600
-    elif distance < 5:
-        bus_fee = 800
-    elif distance < 7.5:
-        bus_fee = 1000
-    elif distance < 10:
-        bus_fee = 1200
+    # Bus fee applies only when the student has opted for bus service.
+    # June is waived only for the June month, not for the entire pending range.
+    if bus_opted != "yes" or distance <= 0:
+        bus_fee_total = 0.0
     else:
-        bus_fee = 1400
+        if distance < 2.5:
+            bus_fee = 600
+        elif distance < 5:
+            bus_fee = 800
+        elif distance < 7.5:
+            bus_fee = 1000
+        elif distance < 10:
+            bus_fee = 1200
+        else:
+            bus_fee = 1400
 
-    bus_fee_total = bus_fee * due_months
+        bus_fee_total = 0.0
+        for due_month in due_month_list:
+            if due_month.month != 6:
+                bus_fee_total += bus_fee
+        bus_fee_total = round(bus_fee_total, 2)
+
     total += bus_fee_total
 
     # Late fee: monthly fine based on current date when unpaid.
