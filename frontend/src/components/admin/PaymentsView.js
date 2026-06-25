@@ -5,6 +5,7 @@ import api from '@/utils/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useCallback } from 'react';
 
 const classOptions = [
   { value: 'Nursery', label: 'Nursery' },
@@ -47,30 +48,39 @@ export default function PaymentsView() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const params = {};
-      if (selectedClasses && selectedClasses.length > 0) params.class_name = selectedClasses.join(',');
-      if (selectedMonth) params.month = selectedMonth;
+
+      if (selectedClasses && selectedClasses.length > 0) {
+        params.class_name = selectedClasses.join(',');
+      }
+
+      if (selectedMonth) {
+        params.month = selectedMonth;
+      }
 
       const [paymentsRes, studentsRes] = await Promise.all([
         api.get('/admin/payments', { params }),
-        api.get('/admin/students', { params: { class_name: selectedClasses.join(',') } }),
+        api.get('/admin/students', {
+          params: { class_name: selectedClasses.join(',') },
+        }),
       ]);
 
       setPayments(paymentsRes.data);
-      
+
       const studentsMap = {};
       studentsRes.data.forEach((student) => {
         studentsMap[student.id] = student;
       });
+
       setStudents(studentsMap);
     } catch (error) {
       toast.error('Failed to fetch payments');
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedClasses, selectedMonth]);
 
   if (loading) {
     return <div className="font-outfit">Loading...</div>;

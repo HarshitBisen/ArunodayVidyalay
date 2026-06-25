@@ -5,6 +5,7 @@ import api from '@/utils/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { useCallback } from 'react';
 
 const getCurrentAcademicYear = () => {
   const now = new Date();
@@ -77,10 +78,13 @@ export default function StudentsManagement() {
 		return () => document.removeEventListener('click', onClick);
 	}, [classDropdownRef]);
 
-	const fetchStudents = async () => {
+	const fetchStudents = useCallback(async () => {
 		try {
 			const params = {};
-			if (selectedClasses && selectedClasses.length > 0) params.class_name = selectedClasses.join(',');
+			if (selectedClasses && selectedClasses.length > 0) {
+			params.class_name = selectedClasses.join(',');
+			}
+
 			const response = await api.get('/admin/students', { params });
 			setStudents(response.data);
 		} catch (error) {
@@ -88,7 +92,7 @@ export default function StudentsManagement() {
 		} finally {
 			setLoading(false);
 		}
-	};
+	}, [selectedClasses]);
 
   const handleAdd = async (e) => {
     e.preventDefault();

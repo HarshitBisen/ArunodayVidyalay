@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import api from '@/utils/api';
+import { useCallback } from 'react';
 
 const loadRazorpayScript = () =>
   new Promise((resolve, reject) => {
@@ -32,18 +33,21 @@ export default function FeePayment() {
     fetchProfile();
   }, []);
 
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     try {
       const response = await api.get('/student/profile');
       const profileData = response.data;
+
       setProfile(profileData);
 
       setFeeLoading(true);
+
       try {
         const feeRes = await api.post('/fees/calculate', {
           ...profileData,
           frequency: 'monthly',
         });
+
         setFeeDetails(feeRes.data);
       } catch (error) {
         setFeeDetails(null);
@@ -55,7 +59,7 @@ export default function FeePayment() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handlePayNow = () => {
     if (!paymentGatewayEnabled) {
