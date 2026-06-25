@@ -30,36 +30,37 @@ export default function FeePayment() {
   const paymentGatewayEnabled = false;
 
   useEffect(() => {
+    const fetchProfile = useCallback(async () => {
+      try {
+        const response = await api.get('/student/profile');
+        const profileData = response.data;
+
+        setProfile(profileData);
+
+        setFeeLoading(true);
+
+        try {
+          const feeRes = await api.post('/fees/calculate', {
+            ...profileData,
+            frequency: 'monthly',
+          });
+
+          setFeeDetails(feeRes.data);
+        } catch (error) {
+          setFeeDetails(null);
+        } finally {
+          setFeeLoading(false);
+        }
+      } catch (error) {
+        toast.error('Failed to fetch profile');
+      } finally {
+        setLoading(false);
+      }
+    }, []);
     fetchProfile();
   }, []);
 
-  const fetchProfile = useCallback(async () => {
-    try {
-      const response = await api.get('/student/profile');
-      const profileData = response.data;
-
-      setProfile(profileData);
-
-      setFeeLoading(true);
-
-      try {
-        const feeRes = await api.post('/fees/calculate', {
-          ...profileData,
-          frequency: 'monthly',
-        });
-
-        setFeeDetails(feeRes.data);
-      } catch (error) {
-        setFeeDetails(null);
-      } finally {
-        setFeeLoading(false);
-      }
-    } catch (error) {
-      toast.error('Failed to fetch profile');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  
 
   const handlePayNow = () => {
     if (!paymentGatewayEnabled) {

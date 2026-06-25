@@ -33,6 +33,39 @@ export default function PaymentsView() {
   const [selectedPayment, setSelectedPayment] = useState(null);
 
   useEffect(() => {
+    const fetchData = useCallback(async () => {
+      try {
+        const params = {};
+
+        if (selectedClasses && selectedClasses.length > 0) {
+          params.class_name = selectedClasses.join(',');
+        }
+
+        if (selectedMonth) {
+          params.month = selectedMonth;
+        }
+
+        const [paymentsRes, studentsRes] = await Promise.all([
+          api.get('/admin/payments', { params }),
+          api.get('/admin/students', {
+            params: { class_name: selectedClasses.join(',') },
+          }),
+        ]);
+
+        setPayments(paymentsRes.data);
+
+        const studentsMap = {};
+        studentsRes.data.forEach((student) => {
+          studentsMap[student.id] = student;
+        });
+
+        setStudents(studentsMap);
+      } catch (error) {
+        toast.error('Failed to fetch payments');
+      } finally {
+        setLoading(false);
+      }
+    }, [selectedClasses, selectedMonth]);
     fetchData();
   }, [selectedClasses, selectedMonth]);
 
@@ -48,39 +81,7 @@ export default function PaymentsView() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  const fetchData = useCallback(async () => {
-    try {
-      const params = {};
-
-      if (selectedClasses && selectedClasses.length > 0) {
-        params.class_name = selectedClasses.join(',');
-      }
-
-      if (selectedMonth) {
-        params.month = selectedMonth;
-      }
-
-      const [paymentsRes, studentsRes] = await Promise.all([
-        api.get('/admin/payments', { params }),
-        api.get('/admin/students', {
-          params: { class_name: selectedClasses.join(',') },
-        }),
-      ]);
-
-      setPayments(paymentsRes.data);
-
-      const studentsMap = {};
-      studentsRes.data.forEach((student) => {
-        studentsMap[student.id] = student;
-      });
-
-      setStudents(studentsMap);
-    } catch (error) {
-      toast.error('Failed to fetch payments');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedClasses, selectedMonth]);
+  
 
   if (loading) {
     return <div className="font-outfit">Loading...</div>;

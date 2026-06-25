@@ -63,6 +63,21 @@ export default function StudentsManagement() {
 		  const [passwordData, setPasswordData] = useState({ new_password: '' });
 
 	useEffect(() => {
+		const fetchStudents = useCallback(async () => {
+			try {
+				const params = {};
+				if (selectedClasses && selectedClasses.length > 0) {
+				params.class_name = selectedClasses.join(',');
+				}
+
+				const response = await api.get('/admin/students', { params });
+				setStudents(response.data);
+			} catch (error) {
+				toast.error('Failed to fetch students');
+			} finally {
+				setLoading(false);
+			}
+		}, [selectedClasses]);
 		fetchStudents();
 	}, [selectedClasses]);
 
@@ -78,21 +93,7 @@ export default function StudentsManagement() {
 		return () => document.removeEventListener('click', onClick);
 	}, [classDropdownRef]);
 
-	const fetchStudents = useCallback(async () => {
-		try {
-			const params = {};
-			if (selectedClasses && selectedClasses.length > 0) {
-			params.class_name = selectedClasses.join(',');
-			}
-
-			const response = await api.get('/admin/students', { params });
-			setStudents(response.data);
-		} catch (error) {
-			toast.error('Failed to fetch students');
-		} finally {
-			setLoading(false);
-		}
-	}, [selectedClasses]);
+	
 
   const handleAdd = async (e) => {
     e.preventDefault();
