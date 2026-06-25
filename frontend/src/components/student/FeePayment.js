@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import api from '@/utils/api';
+import { useCallback } from 'react';
 
 const loadRazorpayScript = () =>
   new Promise((resolve, reject) => {
@@ -26,37 +27,47 @@ export default function FeePayment() {
   const [feeLoading, setFeeLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const paymentGatewayEnabled = false;
 
   useEffect(() => {
+    const fetchProfile = useCallback(async () => {
+      try {
+        const response = await api.get('/student/profile');
+        const profileData = response.data;
+
+        setProfile(profileData);
+
+        setFeeLoading(true);
+
+        try {
+          const feeRes = await api.post('/fees/calculate', {
+            ...profileData,
+            frequency: 'monthly',
+          });
+
+          setFeeDetails(feeRes.data);
+        } catch (error) {
+          setFeeDetails(null);
+        } finally {
+          setFeeLoading(false);
+        }
+      } catch (error) {
+        toast.error('Failed to fetch profile');
+      } finally {
+        setLoading(false);
+      }
+    }, []);
     fetchProfile();
   }, []);
 
-  const fetchProfile = async () => {
-    try {
-      const response = await api.get('/student/profile');
-      const profileData = response.data;
-      setProfile(profileData);
-
-      setFeeLoading(true);
-      try {
-        const feeRes = await api.post('/fees/calculate', {
-          ...profileData,
-          frequency: 'monthly',
-        });
-        setFeeDetails(feeRes.data);
-      } catch (error) {
-        setFeeDetails(null);
-      } finally {
-        setFeeLoading(false);
-      }
-    } catch (error) {
-      toast.error('Failed to fetch profile');
-    } finally {
-      setLoading(false);
-    }
-  };
+  
 
   const handlePayNow = () => {
+    if (!paymentGatewayEnabled) {
+      toast.error('Payment gateway is currently disabled.');
+      return;
+    }
+
     if ((profile?.fee_status ?? 'pending') === 'paid') {
       toast.info('Fee already paid');
       return;
@@ -337,12 +348,17 @@ export default function FeePayment() {
 
             <Button
               onClick={processPayment}
-              disabled={processing}
+              disabled={!paymentGatewayEnabled || processing}
               className="w-full bg-sunny-yellow text-sunny-navy font-bold rounded-full px-8 py-3 neo-brutal-shadow hover:bg-sunny-yellow text-lg"
               data-testid="confirm-payment-button"
             >
               {processing ? 'Processing Payment...' : 'Proceed to Pay'}
             </Button>
+            {!paymentGatewayEnabled && (
+              <p className="mt-3 text-sm text-red-600 font-outfit">
+                Payment gateway is currently disabled. This feature will be enabled later.
+              </p>
+            )}
           </div>
         </DialogContent>
       </Dialog>

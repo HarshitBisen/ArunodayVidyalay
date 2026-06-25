@@ -1,41 +1,87 @@
-import React, { useState, useEffect } from 'react';
-import { CreditCard } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { CreditCard, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/utils/api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useCallback } from 'react';
+
+const classOptions = [
+  { value: 'Nursery', label: 'Nursery' },
+  { value: 'LKG', label: 'LKG' },
+  { value: 'UKG', label: 'UKG' },
+  { value: '1', label: '1' },
+  { value: '2', label: '2' },
+  { value: '3', label: '3' },
+  { value: '4', label: '4' },
+  { value: '5', label: '5' },
+  { value: '6', label: '6' },
+  { value: '7', label: '7' },
+];
 
 export default function PaymentsView() {
   const [payments, setPayments] = useState([]);
   const [students, setStudents] = useState({});
   const [loading, setLoading] = useState(true);
+  const [selectedClasses, setSelectedClasses] = useState(['Nursery']);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0,7));
+  const [classDropdownOpen, setClassDropdownOpen] = useState(false);
+  const [classSearchQuery, setClassSearchQuery] = useState('');
+  const classDropdownRef = useRef(null);
   const [showBreakupModal, setShowBreakupModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
 
   useEffect(() => {
+    const fetchData = useCallback(async () => {
+      try {
+        const params = {};
+
+        if (selectedClasses && selectedClasses.length > 0) {
+          params.class_name = selectedClasses.join(',');
+        }
+
+        if (selectedMonth) {
+          params.month = selectedMonth;
+        }
+
+        const [paymentsRes, studentsRes] = await Promise.all([
+          api.get('/admin/payments', { params }),
+          api.get('/admin/students', {
+            params: { class_name: selectedClasses.join(',') },
+          }),
+        ]);
+
+        setPayments(paymentsRes.data);
+
+        const studentsMap = {};
+        studentsRes.data.forEach((student) => {
+          studentsMap[student.id] = student;
+        });
+
+        setStudents(studentsMap);
+      } catch (error) {
+        toast.error('Failed to fetch payments');
+      } finally {
+        setLoading(false);
+      }
+    }, [selectedClasses, selectedMonth]);
     fetchData();
+  }, [selectedClasses, selectedMonth]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!classDropdownRef.current) return;
+      if (!classDropdownRef.current.contains(event.target)) {
+        setClassDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  const fetchData = async () => {
-    try {
-      const [paymentsRes, studentsRes] = await Promise.all([
-        api.get('/admin/payments'),
-        api.get('/admin/students'),
-      ]);
-
-      setPayments(paymentsRes.data);
-      
-      const studentsMap = {};
-      studentsRes.data.forEach((student) => {
-        studentsMap[student.id] = student;
-      });
-      setStudents(studentsMap);
-    } catch (error) {
-      toast.error('Failed to fetch payments');
-    } finally {
-      setLoading(false);
-    }
-  };
+  
 
   if (loading) {
     return <div className="font-outfit">Loading...</div>;
@@ -55,6 +101,93 @@ export default function PaymentsView() {
   return (
     <div data-testid="payments-view">
       <h1 className="text-4xl font-fredoka font-bold text-sunny-navy mb-8">Fee Payments</h1>
+
+      <div className="inline-flex items-end gap-4 rounded-2xl shadow-lg border border-sunny-border p-4 mb-4 bg-gradient-to-r from-sunny-cream/40 via-white to-sunny-blue/5">
+        <div>
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="rounded-md border px-3 py-2"
+          />
+        </div>
+
+        <div className="relative w-72" ref={classDropdownRef}>
+          <button
+            type="button"
+            onClick={() => setClassDropdownOpen((open) => !open)}
+            className="w-full flex items-start gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm hover:shadow-md transition"
+            aria-expanded={classDropdownOpen}
+          >
+            <div className="flex-1 text-sm text-gray-700">
+              {selectedClasses.length === 0 ? (
+                <span className="text-gray-700">&nbsp;</span>
+              ) : (
+                <div className="flex flex-wrap items-center gap-1 max-h-32 overflow-hidden">
+                  {selectedClasses.map((value) => {
+                    const option = classOptions.find((opt) => opt.value === value);
+                    return (
+                      <span key={value} className="inline-flex items-center rounded-full bg-sunny-cream/70 px-2 py-1 text-xs text-sunny-navy">
+                        {option?.label || value}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <ChevronDown size={18} className="text-gray-400 mt-1" />
+          </button>
+
+          <div
+            className={`absolute right-0 mt-2 w-full bg-white rounded-2xl shadow-xl z-50 border p-3 ${classDropdownOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}
+            style={{
+              transition: 'opacity 200ms ease, transform 200ms ease',
+            }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Input
+                placeholder="Search classes"
+                value={classSearchQuery}
+                onChange={(e) => setClassSearchQuery(e.target.value)}
+                className="rounded-md"
+                data-testid="payment-class-search"
+              />
+              <div className="ml-2 flex gap-2">
+                <button type="button" onClick={() => setSelectedClasses(classOptions.map((o) => o.value))} className="text-sm text-sky-600 hover:underline">
+                  Select All
+                </button>
+                <button type="button" onClick={() => setSelectedClasses([])} className="text-sm text-gray-400 hover:underline">
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="max-h-56 overflow-auto divide-y rounded-xl">
+              {classOptions
+                .filter((o) => o.label.toLowerCase().includes(classSearchQuery.toLowerCase()))
+                .map((opt) => (
+                  <label key={opt.value} className="flex items-center justify-between gap-2 py-2 px-2 hover:bg-gray-50 rounded-md cursor-pointer">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedClasses.includes(opt.value)}
+                        onChange={() => {
+                          if (selectedClasses.includes(opt.value)) {
+                            setSelectedClasses((prev) => prev.filter((value) => value !== opt.value));
+                          } else {
+                            setSelectedClasses((prev) => [...prev, opt.value]);
+                          }
+                        }}
+                        className="h-4 w-4 accent-sky-600"
+                      />
+                      <span className="text-sm text-gray-700">{opt.label}</span>
+                    </div>
+                    {selectedClasses.includes(opt.value) && <span className="text-sky-600">✓</span>}
+                  </label>
+                ))}
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Payments Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden" data-testid="payments-table">

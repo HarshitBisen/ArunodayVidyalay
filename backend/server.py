@@ -473,7 +473,7 @@ async def reset_admin_password(admin_id: str, request: AdminPasswordResetRequest
     return {"message": "Admin password updated"}
 
 @api_router.get("/admin/students", response_model=List[StudentResponse])
-async def get_all_students(unpaid_fees: bool = False, current_user: dict = Depends(get_admin_user)):
+async def get_all_students(unpaid_fees: bool = False, class_name: Optional[str] = None, current_user: dict = Depends(get_admin_user)):
     current_month = month_key(datetime.now(timezone.utc))
     payments = await db.payments.find(
         payment_month_match_query(current_month),
@@ -482,6 +482,11 @@ async def get_all_students(unpaid_fees: bool = False, current_user: dict = Depen
     paid_student_ids = {p.get("student_id") for p in payments if p.get("student_id")}
 
     query = active_student_query()
+    # Support filtering by class name(s) passed as comma-separated values
+    if class_name:
+        classes = [c.strip() for c in str(class_name).split(",") if c.strip()]
+        if classes:
+            query["class_name"] = {"$in": classes}
     if unpaid_fees:
         if paid_student_ids:
             query["id"] = {"$nin": list(paid_student_ids)}
@@ -716,8 +721,34 @@ async def delete_student_concession(student_id: str, current_user: dict = Depend
     return ConcessionStatusResponse(applied=False)
 
 @api_router.get("/admin/payments", response_model=List[dict])
-async def get_all_payments(current_user: dict = Depends(get_admin_user)):
-    payments = await db.payments.find({}, {"_id": 0}).to_list(1000)
+async def get_all_payments(class_name: Optional[str] = None, month: Optional[str] = None, current_user: dict = Depends(get_admin_user)):
+    # Build query parts
+    query_parts = []
+
+    # Month filter
+    if month:
+        # payment_month_match_query returns an OR clause for the month
+        query_parts.append(payment_month_match_query(month))
+
+    # Class filter: resolve student ids for the given class(es)
+    if class_name:
+        classes = [c.strip() for c in str(class_name).split(",") if c.strip()]
+        if classes:
+            students_cursor = await db.students.find({**active_student_query(), "class_name": {"$in": classes}}, {"_id": 0, "id": 1}).to_list(2000)
+            student_ids = [s.get("id") for s in students_cursor if s.get("id")]
+            if not student_ids:
+                return []
+            query_parts.append({"student_id": {"$in": student_ids}})
+
+    # Combine query parts
+    if len(query_parts) == 0:
+        final_query = {}
+    elif len(query_parts) == 1:
+        final_query = query_parts[0]
+    else:
+        final_query = {"$and": query_parts}
+
+    payments = await db.payments.find(final_query, {"_id": 0}).to_list(1000)
     for payment in payments:
         payment['paid_at'] = payment['paid_at'].isoformat() if isinstance(payment['paid_at'], datetime) else payment['paid_at']
     return payments
@@ -1253,6 +1284,11 @@ async def build_paid_fee_summary(student: dict, student_id: str) -> dict:
     }
 
 def calculate_late_fee(base_due_date: datetime, now: datetime) -> float:
+    # Late fee is disabled for April, May, and June.
+    # From July onwards the normal late fee rules apply.
+    if now.month in (4, 5, 6):
+        return 0.0
+
     # Rules:
     # - If not paid till 10th of the current month: +50.
     # - For each fully missed month before the current month: +100 per month.
