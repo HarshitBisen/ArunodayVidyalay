@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, Edit, Trash2, Key, Eye, EyeOff, Search, ChevronDown, X, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/utils/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { useCallback } from 'react';
 
 const getCurrentAcademicYear = () => {
   const now = new Date();
@@ -62,24 +61,25 @@ export default function StudentsManagement() {
 		  });
 		  const [passwordData, setPasswordData] = useState({ new_password: '' });
 
-	useEffect(() => {
-		const fetchStudents = useCallback(async () => {
-			try {
-				const params = {};
-				if (selectedClasses && selectedClasses.length > 0) {
+	const fetchStudents = useCallback(async () => {
+		try {
+			const params = {};
+			if (selectedClasses && selectedClasses.length > 0) {
 				params.class_name = selectedClasses.join(',');
-				}
-
-				const response = await api.get('/admin/students', { params });
-				setStudents(response.data);
-			} catch (error) {
-				toast.error('Failed to fetch students');
-			} finally {
-				setLoading(false);
 			}
-		}, [selectedClasses]);
-		fetchStudents();
+
+			const response = await api.get('/admin/students', { params });
+			setStudents(response.data);
+		} catch (error) {
+			toast.error('Failed to fetch students');
+		} finally {
+			setLoading(false);
+		}
 	}, [selectedClasses]);
+
+	useEffect(() => {
+		fetchStudents();
+	}, [fetchStudents]);
 
 	// close class dropdown on outside click
 	useEffect(() => {

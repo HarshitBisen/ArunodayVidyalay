@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Edit, Search, ChevronDown, X, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/utils/api';
@@ -40,11 +40,7 @@ export default function FeesManagement() {
   const [concessionAppliedBy, setConcessionAppliedBy] = useState(null);
   const [concessionAppliedAt, setConcessionAppliedAt] = useState(null);
 
-  useEffect(() => {
-    fetchStudents();
-  }, [selectedClasses]);
-
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
@@ -78,7 +74,11 @@ export default function FeesManagement() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedClasses]);
+
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]);
 
   const openFeeModal = async (student) => {
     try {

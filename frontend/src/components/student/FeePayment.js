@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { CreditCard, CheckCircle, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import api from '@/utils/api';
-import { useCallback } from 'react';
 
 const loadRazorpayScript = () =>
   new Promise((resolve, reject) => {
@@ -29,36 +28,37 @@ export default function FeePayment() {
   const [processing, setProcessing] = useState(false);
   const paymentGatewayEnabled = false;
 
-  useEffect(() => {
-    const fetchProfile = useCallback(async () => {
+  const fetchProfile = useCallback(async () => {
+    try {
+      const response = await api.get('/student/profile');
+      const profileData = response.data;
+
+      setProfile(profileData);
+
+      setFeeLoading(true);
+
       try {
-        const response = await api.get('/student/profile');
-        const profileData = response.data;
+        const feeRes = await api.post('/fees/calculate', {
+          ...profileData,
+          frequency: 'monthly',
+        });
 
-        setProfile(profileData);
-
-        setFeeLoading(true);
-
-        try {
-          const feeRes = await api.post('/fees/calculate', {
-            ...profileData,
-            frequency: 'monthly',
-          });
-
-          setFeeDetails(feeRes.data);
-        } catch (error) {
-          setFeeDetails(null);
-        } finally {
-          setFeeLoading(false);
-        }
+        setFeeDetails(feeRes.data);
       } catch (error) {
-        toast.error('Failed to fetch profile');
+        setFeeDetails(null);
       } finally {
-        setLoading(false);
+        setFeeLoading(false);
       }
-    }, []);
-    fetchProfile();
+    } catch (error) {
+      toast.error('Failed to fetch profile');
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
 
   
 

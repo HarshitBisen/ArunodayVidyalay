@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CreditCard, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/utils/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useCallback } from 'react';
 
 const classOptions = [
   { value: 'Nursery', label: 'Nursery' },
@@ -32,42 +31,44 @@ export default function PaymentsView() {
   const [showBreakupModal, setShowBreakupModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
 
-  useEffect(() => {
-    const fetchData = useCallback(async () => {
-      try {
-        const params = {};
+  const fetchData = useCallback(async () => {
+    try {
+      const params = {};
+      const studentsParams = {};
 
-        if (selectedClasses && selectedClasses.length > 0) {
-          params.class_name = selectedClasses.join(',');
-        }
-
-        if (selectedMonth) {
-          params.month = selectedMonth;
-        }
-
-        const [paymentsRes, studentsRes] = await Promise.all([
-          api.get('/admin/payments', { params }),
-          api.get('/admin/students', {
-            params: { class_name: selectedClasses.join(',') },
-          }),
-        ]);
-
-        setPayments(paymentsRes.data);
-
-        const studentsMap = {};
-        studentsRes.data.forEach((student) => {
-          studentsMap[student.id] = student;
-        });
-
-        setStudents(studentsMap);
-      } catch (error) {
-        toast.error('Failed to fetch payments');
-      } finally {
-        setLoading(false);
+      if (selectedClasses && selectedClasses.length > 0) {
+        const joinedClasses = selectedClasses.join(',');
+        params.class_name = joinedClasses;
+        studentsParams.class_name = joinedClasses;
       }
-    }, [selectedClasses, selectedMonth]);
-    fetchData();
+
+      if (selectedMonth) {
+        params.month = selectedMonth;
+      }
+
+      const [paymentsRes, studentsRes] = await Promise.all([
+        api.get('/admin/payments', { params }),
+        api.get('/admin/students', { params: studentsParams }),
+      ]);
+
+      setPayments(paymentsRes.data);
+
+      const studentsMap = {};
+      studentsRes.data.forEach((student) => {
+        studentsMap[student.id] = student;
+      });
+
+      setStudents(studentsMap);
+    } catch (error) {
+      toast.error('Failed to fetch payments');
+    } finally {
+      setLoading(false);
+    }
   }, [selectedClasses, selectedMonth]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
