@@ -26,6 +26,7 @@ export default function FeePayment() {
   const [feeLoading, setFeeLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const paymentGatewayEnabled = false;
 
   useEffect(() => {
     fetchProfile();
@@ -57,6 +58,11 @@ export default function FeePayment() {
   };
 
   const handlePayNow = () => {
+    if (!paymentGatewayEnabled) {
+      toast.error('Payment gateway is currently disabled.');
+      return;
+    }
+
     if ((profile?.fee_status ?? 'pending') === 'paid') {
       toast.info('Fee already paid');
       return;
@@ -337,12 +343,17 @@ export default function FeePayment() {
 
             <Button
               onClick={processPayment}
-              disabled={processing}
+              disabled={!paymentGatewayEnabled || processing}
               className="w-full bg-sunny-yellow text-sunny-navy font-bold rounded-full px-8 py-3 neo-brutal-shadow hover:bg-sunny-yellow text-lg"
               data-testid="confirm-payment-button"
             >
               {processing ? 'Processing Payment...' : 'Proceed to Pay'}
             </Button>
+            {!paymentGatewayEnabled && (
+              <p className="mt-3 text-sm text-red-600 font-outfit">
+                Payment gateway is currently disabled. This feature will be enabled later.
+              </p>
+            )}
           </div>
         </DialogContent>
       </Dialog>

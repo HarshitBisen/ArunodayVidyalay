@@ -30,7 +30,7 @@ export default function StudentsManagement() {
   const academicYearOptions = getAcademicYearOptions(3);
 	const [students, setStudents] = useState([]);
 	const [searchQuery, setSearchQuery] = useState('');
-	const [selectedClasses, setSelectedClasses] = useState([]);
+	const [selectedClasses, setSelectedClasses] = useState(['Nursery']);
 	const [classDropdownOpen, setClassDropdownOpen] = useState(false);
 	const [classSearchQuery, setClassSearchQuery] = useState('');
 	const classDropdownRef = useRef(null);
@@ -61,9 +61,9 @@ export default function StudentsManagement() {
 		  });
 		  const [passwordData, setPasswordData] = useState({ new_password: '' });
 
-  useEffect(() => {
-    fetchStudents();
-  }, []);
+	useEffect(() => {
+		fetchStudents();
+	}, [selectedClasses]);
 
 	// close class dropdown on outside click
 	useEffect(() => {
@@ -77,16 +77,18 @@ export default function StudentsManagement() {
 		return () => document.removeEventListener('click', onClick);
 	}, [classDropdownRef]);
 
-  const fetchStudents = async () => {
-    try {
-      const response = await api.get('/admin/students');
-      setStudents(response.data);
-    } catch (error) {
-      toast.error('Failed to fetch students');
-    } finally {
-      setLoading(false);
-    }
-  };
+	const fetchStudents = async () => {
+		try {
+			const params = {};
+			if (selectedClasses && selectedClasses.length > 0) params.class_name = selectedClasses.join(',');
+			const response = await api.get('/admin/students', { params });
+			setStudents(response.data);
+		} catch (error) {
+			toast.error('Failed to fetch students');
+		} finally {
+			setLoading(false);
+		}
+	};
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -231,7 +233,7 @@ export default function StudentsManagement() {
 		{ value: 'Nursery', label: 'Nursery' },
 		{ value: 'JKG', label: 'JKG' },
 		{ value: 'SKG', label: 'SKG' },
-		...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `Class ${i + 1}` })),
+		...Array.from({ length: 7 }, (_, i) => ({ value: String(i + 1), label: `Class ${i + 1}` })),
 	];
 
 	const filteredStudents = students.filter((student) => {
