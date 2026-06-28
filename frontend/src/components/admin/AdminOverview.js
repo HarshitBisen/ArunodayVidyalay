@@ -13,20 +13,9 @@ export default function AdminOverview() {
 
   const fetchData = async () => {
     try {
-      const [studentsRes, paymentsRes] = await Promise.all([
-        api.get('/admin/students'),
-        api.get('/admin/payments'),
-      ]);
-
-      const students = studentsRes.data;
-      const feePaid = students.filter((s) => s.fee_status === 'paid').length;
-      setStats({
-        total: students.length,
-        feePaid,
-        feePending: students.length - feePaid,
-      });
-
-      setRecentPayments(paymentsRes.data.slice(0, 5));
+      const overviewRes = await api.get('/admin/overview');
+      setStats(overviewRes.data?.stats || { total: 0, feePaid: 0, feePending: 0 });
+      setRecentPayments(overviewRes.data?.recentPayments || []);
     } catch (error) {
       console.error('Failed to fetch data', error);
     } finally {
@@ -99,10 +88,10 @@ export default function AdminOverview() {
               </thead>
               <tbody>
                 {recentPayments.map((payment) => (
-                  <tr key={payment.id} className="border-b hover:bg-gray-50">
+                  <tr key={payment.id || payment.transaction_id} className="border-b hover:bg-gray-50">
                     <td className="font-outfit text-gray-600 py-3">{payment.transaction_id}</td>
                     <td className="font-outfit text-gray-900 font-semibold py-3">
-                      ₹{payment.amount.toLocaleString()}
+                      ₹{Number(payment.amount || 0).toLocaleString()}
                     </td>
                     <td className="font-outfit text-gray-600 py-3">
                       {new Date(payment.paid_at).toLocaleDateString()}
