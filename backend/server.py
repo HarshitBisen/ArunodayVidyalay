@@ -366,6 +366,14 @@ async def startup_event():
     except Exception as exc:
         logger.warning("Could not create unique index for enrollment_number: %s", exc)
 
+    try:
+        await db.students.create_index([("active", 1), ("id", 1)])
+        await db.payments.create_index("student_id")
+        await db.payments.create_index("paid_for_month")
+        await db.payments.create_index("paid_at")
+    except Exception as exc:
+        logger.warning("Could not create one or more dashboard indexes: %s", exc)
+
     await db.students.update_many(
         {"active": {"$exists": False}},
         {"$set": {"active": True}},
@@ -518,6 +526,69 @@ async def get_all_students(unpaid_fees: bool = False, class_name: Optional[str] 
             # On error, leave fee_amount as-is or set to 0
             student["fee_amount"] = float(student.get("fee_amount") or 0)
     return students
+
+
+@api_router.get("/admin/overview", response_model=dict)
+async def get_admin_overview(current_user: dict = Depends(get_admin_user)):
+    current_month = month_key(datetime.now(timezone.utc))
+
+    total_students = await db.students.count_documents(active_student_query())
+
+    paid_ids = await db.payments.distinct("student_id", payment_month_match_query(current_month))
+    paid_ids = [student_id for student_id in paid_ids if student_id]
+    paid_students = 0
+    if paid_ids:
+        paid_students = await db.students.count_documents(active_student_query({"id": {"$in": paid_ids}}))
+
+    pending_students = max(total_students - paid_students, 0)
+
+    recent_pipeline = [
+        {
+            "$addFields": {
+                "sort_paid_at": {
+                    "$cond": [
+                        {"$eq": [{"$type": "$paid_at"}, "date"]},
+                        "$paid_at",
+                        {
+                            "$dateFromString": {
+                                "dateString": "$paid_at",
+                                "onError": datetime(1970, 1, 1, tzinfo=timezone.utc),
+                                "onNull": datetime(1970, 1, 1, tzinfo=timezone.utc),
+                            }
+                        },
+                    ]
+                }
+            }
+        },
+        {"$sort": {"sort_paid_at": -1}},
+        {"$limit": 5},
+        {
+            "$project": {
+                "_id": 0,
+                "id": 1,
+                "transaction_id": 1,
+                "amount": 1,
+                "status": 1,
+                "paid_at": 1,
+                "payment_method": 1,
+            }
+        },
+    ]
+
+    recent_payments = await db.payments.aggregate(recent_pipeline).to_list(5)
+    for payment in recent_payments:
+        paid_at = payment.get("paid_at")
+        if isinstance(paid_at, datetime):
+            payment["paid_at"] = paid_at.isoformat()
+
+    return {
+        "stats": {
+            "total": total_students,
+            "feePaid": paid_students,
+            "feePending": pending_students,
+        },
+        "recentPayments": recent_payments,
+    }
 
 @api_router.post("/admin/students", response_model=StudentResponse)
 async def create_student(student_data: StudentCreate, current_user: dict = Depends(get_admin_user)):
