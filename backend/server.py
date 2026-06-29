@@ -1593,6 +1593,10 @@ async def calculate_fee(student: dict):
     if not student_id:
         raise HTTPException(status_code=400, detail="Missing student id")
 
+    student_doc = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
+    if not student_doc:
+        raise HTTPException(status_code=404, detail="Student not found")
+
     include_paid_summary = parse_bool(student.get("include_paid_summary"))
 
     # -------- Check existing payment (current month) --------
@@ -1628,11 +1632,11 @@ async def calculate_fee(student: dict):
             "breakup": breakup,
         }
         if include_paid_summary:
-            response["paid_summary"] = await build_paid_fee_summary(student, student_id)
+            response["paid_summary"] = await build_paid_fee_summary(student_doc, student_id)
         return response
-    fee_breakup = await build_fee_breakup(student, student_id)
+    fee_breakup = await build_fee_breakup(student_doc, student_id)
     if include_paid_summary:
-        fee_breakup["paid_summary"] = await build_paid_fee_summary(student, student_id)
+        fee_breakup["paid_summary"] = await build_paid_fee_summary(student_doc, student_id)
     return fee_breakup
     
 async def calculate_concession(student):

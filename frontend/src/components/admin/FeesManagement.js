@@ -48,28 +48,10 @@ export default function FeesManagement() {
       const params = {};
       if (selectedClasses.length > 0) params.class_name = selectedClasses.join(',');
       const response = await api.get('/admin/students', { params });
-      const studentsWithPendingFees = await Promise.all(
-        response.data.map(async (student) => {
-          try {
-            const feeRes = await api.post('/fees/calculate', {
-              ...student,
-              frequency: 'monthly',
-              include_paid_summary: true,
-            });
-            return {
-              ...student,
-              pending_fee: Number(feeRes.data?.total_fee ?? 0),
-              fee_details: feeRes.data,
-            };
-          } catch (error) {
-            return {
-              ...student,
-              pending_fee: 0,
-              fee_details: null,
-            };
-          }
-        }),
-      );
+      const studentsWithPendingFees = response.data.map((student) => ({
+        ...student,
+        pending_fee: Number(student?.fee_amount ?? 0),
+      }));
       setStudents(studentsWithPendingFees);
     } catch (error) {
       toast.error('Failed to fetch students');
@@ -88,11 +70,8 @@ export default function FeesManagement() {
       setOfflineReceipt('');
       setOfflineNote('');
       setOfflineMonth(new Date().toISOString().slice(0, 7));
-      const freshStudentsRes = await api.get('/admin/students');
-      const freshStudent = freshStudentsRes.data.find((item) => item.id === student.id) || student;
       const res = await api.post('/fees/calculate', {
-        ...freshStudent,
-        frequency: 'monthly',
+        id: student.id,
         include_paid_summary: true,
       });
       setFeeDetails(res.data);
