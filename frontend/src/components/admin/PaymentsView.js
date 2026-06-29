@@ -5,6 +5,7 @@ import api from '@/utils/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import Loader from '@/components/ui/loader';
 
 const classOptions = [
   { value: 'Nursery', label: 'Nursery' },
@@ -20,18 +21,24 @@ const classOptions = [
 ];
 
 export default function PaymentsView() {
+  const currentMonth = new Date().toISOString().slice(0, 7);
   const [payments, setPayments] = useState([]);
   const [students, setStudents] = useState({});
   const [loading, setLoading] = useState(true);
   const [selectedClasses, setSelectedClasses] = useState(['Nursery']);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0,7));
+  const [selectedMonths, setSelectedMonths] = useState([currentMonth]);
+  const [monthInput, setMonthInput] = useState(currentMonth);
+  const [monthDropdownOpen, setMonthDropdownOpen] = useState(false);
   const [classDropdownOpen, setClassDropdownOpen] = useState(false);
   const [classSearchQuery, setClassSearchQuery] = useState('');
+  const monthDropdownRef = useRef(null);
   const classDropdownRef = useRef(null);
   const [showBreakupModal, setShowBreakupModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
       const params = {};
       const studentsParams = {};
@@ -42,8 +49,8 @@ export default function PaymentsView() {
         studentsParams.class_name = joinedClasses;
       }
 
-      if (selectedMonth) {
-        params.month = selectedMonth;
+      if (selectedMonths.length > 0) {
+        params.month = selectedMonths.join(',');
       }
 
       const [paymentsRes, studentsRes] = await Promise.all([
@@ -64,16 +71,29 @@ export default function PaymentsView() {
     } finally {
       setLoading(false);
     }
-  }, [selectedClasses, selectedMonth]);
+  }, [selectedClasses, selectedMonths]);
+
+  const addMonthToFilter = (value) => {
+    if (!value) return;
+    setSelectedMonths((prev) => (prev.includes(value) ? prev : [...prev, value]));
+  };
+
+  const removeMonthFromFilter = (value) => {
+    setSelectedMonths((prev) => prev.filter((month) => month !== value));
+  };
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => { setCurrentPage(1); }, [selectedMonths, selectedClasses]);
+
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (!classDropdownRef.current) return;
-      if (!classDropdownRef.current.contains(event.target)) {
+      if (monthDropdownRef.current && !monthDropdownRef.current.contains(event.target)) {
+        setMonthDropdownOpen(false);
+      }
+      if (classDropdownRef.current && !classDropdownRef.current.contains(event.target)) {
         setClassDropdownOpen(false);
       }
     };
@@ -85,7 +105,7 @@ export default function PaymentsView() {
   
 
   if (loading) {
-    return <div className="font-outfit">Loading...</div>;
+    return <Loader message="Loading payments" />;
   }
 
   const formatKey = (key) =>
@@ -99,21 +119,92 @@ export default function PaymentsView() {
   const concessionMeta = selectedPayment?.breakup?.meta?.concession || null;
   const selectedStudent = selectedPayment ? students[selectedPayment.student_id] || {} : {};
 
+  const pagedPayments = payments.slice((currentPage - 1) * 10, currentPage * 10);
+  const totalPages = Math.ceil(payments.length / 10);
+
   return (
     <div data-testid="payments-view">
       <h1 className="text-4xl font-fredoka font-bold text-sunny-navy mb-8">Fee Payments</h1>
 
-      <div className="inline-flex items-end gap-4 rounded-2xl shadow-lg border border-sunny-border p-4 mb-4 bg-gradient-to-r from-sunny-cream/40 via-white to-sunny-blue/5">
-        <div>
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="rounded-md border px-3 py-2"
-          />
+      <div className="w-full flex flex-wrap items-start gap-4 rounded-2xl shadow-lg border border-sunny-border p-4 mb-4 bg-gradient-to-r from-sunny-cream/40 via-white to-sunny-blue/5">
+        <div className="relative flex-1 min-w-[280px]" ref={monthDropdownRef}>
+          <button
+            type="button"
+            onClick={() => setMonthDropdownOpen((open) => !open)}
+            className="w-full flex items-start gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm hover:shadow-md transition"
+            aria-expanded={monthDropdownOpen}
+          >
+            <div className="flex-1 text-sm text-gray-700">
+              {selectedMonths.length === 0 ? (
+                <span className="text-gray-700">&nbsp;</span>
+              ) : (
+                <div className="flex flex-wrap items-center gap-1 max-h-32 overflow-hidden">
+                  {selectedMonths.map((month) => (
+                    <span key={month} className="inline-flex items-center rounded-full bg-sunny-cream/70 px-2 py-1 text-xs text-sunny-navy">
+                      {month}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <ChevronDown size={18} className="text-gray-400 mt-1" />
+          </button>
+
+          <div
+            className={`absolute right-0 mt-2 w-full bg-white rounded-2xl shadow-xl z-50 border p-3 ${monthDropdownOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}
+            style={{
+              transition: 'opacity 200ms ease, transform 200ms ease',
+            }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <input
+                type="month"
+                value={monthInput}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setMonthInput(value);
+                  addMonthToFilter(value);
+                }}
+                className="w-full rounded-md border px-3 py-2"
+              />
+              <button
+                type="button"
+                onClick={() => addMonthToFilter(monthInput)}
+                className="text-sm text-sky-600 hover:underline"
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedMonths([])}
+                className="text-sm text-gray-400 hover:underline"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="max-h-56 overflow-auto divide-y rounded-xl">
+              {selectedMonths.length === 0 ? (
+                <div className="px-2 py-3 text-sm text-gray-500 font-outfit">No month selected</div>
+              ) : (
+                selectedMonths.map((month) => (
+                  <div key={month} className="flex items-center justify-between gap-2 py-2 px-2 hover:bg-gray-50 rounded-md">
+                    <span className="text-sm text-gray-700">{month}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeMonthFromFilter(month)}
+                      className="text-sm text-gray-400 hover:text-gray-700"
+                      aria-label={`Remove month ${month}`}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="relative w-72" ref={classDropdownRef}>
+        <div className="relative flex-1 min-w-[280px]" ref={classDropdownRef}>
           <button
             type="button"
             onClick={() => setClassDropdownOpen((open) => !open)}
@@ -213,7 +304,7 @@ export default function PaymentsView() {
                 </tr>
               </thead>
               <tbody>
-                {payments.map((payment) => {
+                {pagedPayments.map((payment) => {
                   const student = students[payment.student_id] || {};
                   return (
                     <tr key={payment.id} className="border-t hover:bg-gray-50" data-testid={`payment-row-${payment.id}`}>
@@ -255,6 +346,19 @@ export default function PaymentsView() {
           </div>
         )}
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-4 py-3 mt-2">
+          <span className="text-sm font-outfit text-gray-600">
+            Showing {(currentPage - 1) * 10 + 1}–{Math.min(currentPage * 10, payments.length)} of {payments.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded-lg border text-sm font-outfit disabled:opacity-40 hover:bg-gray-50">Previous</button>
+            <span className="text-sm font-outfit text-gray-700">{currentPage} / {totalPages}</span>
+            <button type="button" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded-lg border text-sm font-outfit disabled:opacity-40 hover:bg-gray-50">Next</button>
+          </div>
+        </div>
+      )}
 
       <Dialog
         open={showBreakupModal}

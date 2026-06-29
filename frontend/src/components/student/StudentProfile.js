@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Mail, Phone, MapPin, GraduationCap, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/utils/api';
+import Loader from '@/components/ui/loader';
 
 export default function StudentProfile() {
   const [profile, setProfile] = useState(null);
@@ -23,7 +24,7 @@ export default function StudentProfile() {
   };
 
   if (loading) {
-    return <div className="font-outfit">Loading...</div>;
+    return <Loader message="Loading profile" />;
   }
 
   return (

@@ -798,8 +798,26 @@ async def get_all_payments(class_name: Optional[str] = None, month: Optional[str
 
     # Month filter
     if month:
-        # payment_month_match_query returns an OR clause for the month
-        query_parts.append(payment_month_match_query(month))
+        months = []
+        seen = set()
+        for month_token in str(month).split(","):
+            month_value = month_token.strip()
+            if not month_value or month_value in seen:
+                continue
+            seen.add(month_value)
+            months.append(month_value)
+
+        if months:
+            # payment_month_match_query returns an OR clause for each month
+            month_or_clauses = []
+            for month_value in months:
+                month_query = payment_month_match_query(month_value)
+                if isinstance(month_query, dict) and isinstance(month_query.get("$or"), list):
+                    month_or_clauses.extend(month_query["$or"])
+                else:
+                    month_or_clauses.append(month_query)
+            if month_or_clauses:
+                query_parts.append({"$or": month_or_clauses})
 
     # Class filter: resolve student ids for the given class(es)
     if class_name:
