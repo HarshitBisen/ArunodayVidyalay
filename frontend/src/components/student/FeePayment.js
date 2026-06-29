@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import api from '@/utils/api';
+import Loader from '@/components/ui/loader';
 
 const loadRazorpayScript = () =>
   new Promise((resolve, reject) => {
@@ -150,7 +151,7 @@ export default function FeePayment() {
   };
 
   if (loading) {
-    return <div className="font-outfit">Loading...</div>;
+    return <Loader message="Loading fee details" />;
   }
 
   const feeAmount = Number(profile?.fee_amount ?? 0);

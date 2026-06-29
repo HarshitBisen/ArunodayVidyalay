@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import Loader from '@/components/ui/loader';
 
 const classOptions = [
   { value: 'Nursery', label: 'Nursery' },
   { value: 'JKG', label: 'JKG' },
-  { value: 'UKG', label: 'UKG' },
+  { value: 'SKG', label: 'SKG' },
   ...Array.from({ length: 7 }, (_, i) => ({ value: String(i + 1), label: `Class ${i + 1}` })),
 ];
 
@@ -22,6 +23,7 @@ export default function FeesManagement() {
   const [classDropdownOpen, setClassDropdownOpen] = useState(false);
   const [classSearchQuery, setClassSearchQuery] = useState('');
   const classDropdownRef = useRef(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [showFeeModal, setShowFeeModal] = useState(false);
   const [feeDetails, setFeeDetails] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -184,6 +186,14 @@ export default function FeesManagement() {
     return name.includes(q) || enroll.includes(q) || roll.includes(q);
   });
 
+  useEffect(() => { setCurrentPage(1); }, [searchQuery, selectedClasses]);
+  const pagedStudents = filteredStudents.slice((currentPage - 1) * 10, currentPage * 10);
+  const totalPages = Math.ceil(filteredStudents.length / 10);
+
+  if (loading) {
+    return <Loader message="Loading fees" />;
+  }
+
   const displayFeeDetails = feeDetails?.total_fee === 0 && feeDetails?.paid_summary ? feeDetails.paid_summary : feeDetails;
   const isPaidSummary = Boolean(feeDetails?.total_fee === 0 && feeDetails?.paid_summary);
   const displayTotal = isPaidSummary ? Number(displayFeeDetails?.total_paid ?? 0) : Number(displayFeeDetails?.total_fee ?? 0);
@@ -325,7 +335,7 @@ export default function FeesManagement() {
             </tr>
           </thead>
           <tbody>
-            {filteredStudents.map((student) => (
+            {pagedStudents.map((student) => (
               <tr key={student.id} className="border-t hover:bg-gray-50">
                 <td className="font-outfit text-gray-900 py-3 px-4">{student.enrollment_number}</td>
                 <td className="font-outfit text-gray-900 py-3 px-4">{student.name}</td>
@@ -354,6 +364,19 @@ export default function FeesManagement() {
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-4 py-3 mt-2">
+          <span className="text-sm font-outfit text-gray-600">
+            Showing {(currentPage - 1) * 10 + 1}–{Math.min(currentPage * 10, filteredStudents.length)} of {filteredStudents.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded-lg border text-sm font-outfit disabled:opacity-40 hover:bg-gray-50">Previous</button>
+            <span className="text-sm font-outfit text-gray-700">{currentPage} / {totalPages}</span>
+            <button type="button" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded-lg border text-sm font-outfit disabled:opacity-40 hover:bg-gray-50">Next</button>
+          </div>
+        </div>
+      )}
 
       <Dialog
         open={showConcessionModal}

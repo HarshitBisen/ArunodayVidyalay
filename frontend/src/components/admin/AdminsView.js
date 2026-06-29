@@ -6,6 +6,7 @@ import { getUser } from '@/utils/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import Loader from '@/components/ui/loader';
 
 export default function AdminsView() {
   const user = getUser();
@@ -89,7 +90,7 @@ export default function AdminsView() {
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-sunny-border" data-testid="admins-table">
         {loading ? (
-          <div className="p-8 font-outfit text-gray-600">Loading...</div>
+          <Loader compact message="Loading admins" />
         ) : admins.length === 0 ? (
           <div className="p-10 text-center">
             <Shield className="w-16 h-16 text-gray-300 mx-auto mb-4" />

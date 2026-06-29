@@ -5,6 +5,7 @@ import api from '@/utils/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import Loader from '@/components/ui/loader';
 
 const getCurrentAcademicYear = () => {
   const now = new Date();
@@ -42,6 +43,7 @@ export default function StudentsManagement() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showStudentPassword, setShowStudentPassword] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [formData, setFormData] = useState({
     roll_number: '',
     name: '',
@@ -62,6 +64,7 @@ export default function StudentsManagement() {
 		  const [passwordData, setPasswordData] = useState({ new_password: '' });
 
 	const fetchStudents = useCallback(async () => {
+		setLoading(true);
 		try {
 			const params = {};
 			if (selectedClasses && selectedClasses.length > 0) {
@@ -230,8 +233,10 @@ export default function StudentsManagement() {
     setShowAddModal(true);
   };
 
+	useEffect(() => { setCurrentPage(1); }, [searchQuery, selectedClasses]);
+
 	if (loading) {
-		return <div className="font-outfit">Loading...</div>;
+		return <Loader message="Loading students" />;
 	}
 
 	const classOptions = [
@@ -259,6 +264,9 @@ export default function StudentsManagement() {
 
 		return true;
 	});
+
+  const pagedStudents = filteredStudents.slice((currentPage - 1) * 10, currentPage * 10);
+  const totalPages = Math.ceil(filteredStudents.length / 10);
 
   return (
     <div data-testid="students-management">
@@ -696,7 +704,7 @@ export default function StudentsManagement() {
 	              </tr>
             </thead>
             <tbody>
-			  {filteredStudents.map((student) => (
+			  {pagedStudents.map((student) => (
                 <tr key={student.id} className="border-t hover:bg-gray-50">
                   <td className="font-outfit text-gray-900 py-3 px-4">{student.enrollment_number}</td>
                   <td className="font-outfit text-gray-900 py-3 px-4">{student.name}</td>
@@ -737,6 +745,19 @@ export default function StudentsManagement() {
           </table>
         </div>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-4 py-3 mt-2">
+          <span className="text-sm font-outfit text-gray-600">
+            Showing {(currentPage - 1) * 10 + 1}–{Math.min(currentPage * 10, filteredStudents.length)} of {filteredStudents.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded-lg border text-sm font-outfit disabled:opacity-40 hover:bg-gray-50">Previous</button>
+            <span className="text-sm font-outfit text-gray-700">{currentPage} / {totalPages}</span>
+            <button type="button" onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 rounded-lg border text-sm font-outfit disabled:opacity-40 hover:bg-gray-50">Next</button>
+          </div>
+        </div>
+      )}
 
 	      {/* Edit Modal */}
 	      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>

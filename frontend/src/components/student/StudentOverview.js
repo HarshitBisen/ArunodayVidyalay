@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Mail, Phone, MapPin, CreditCard, CheckCircle, XCircle } from 'lucide-react';
 import api from '@/utils/api';
+import Loader from '@/components/ui/loader';
 
 export default function StudentOverview() {
   const [profile, setProfile] = useState(null);
@@ -27,7 +28,7 @@ export default function StudentOverview() {
   };
 
   if (loading) {
-    return <div className="font-outfit">Loading...</div>;
+    return <Loader message="Loading overview" />;
   }
 
   const feeAmount = Number(profile?.fee_amount ?? 0);

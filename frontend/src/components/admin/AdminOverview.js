@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, CreditCard, CheckCircle, XCircle } from 'lucide-react';
 import api from '@/utils/api';
+import Loader from '@/components/ui/loader';
 
 export default function AdminOverview() {
   const [stats, setStats] = useState({ total: 0, feePaid: 0, feePending: 0 });
@@ -24,7 +25,7 @@ export default function AdminOverview() {
   };
 
   if (loading) {
-    return <div className="font-outfit">Loading...</div>;
+    return <Loader message="Loading dashboard" />;
   }
 
   return (
