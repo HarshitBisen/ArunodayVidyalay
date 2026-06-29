@@ -514,17 +514,15 @@ async def get_all_students(unpaid_fees: bool = False, class_name: Optional[str] 
             except Exception:
                 created_dt = datetime.now(timezone.utc)
             student["academic_year"] = academic_year_for(created_dt)
-        student["fee_status"] = "paid" if student.get("id") in paid_student_ids else "pending"
-        # Populate fee_amount for dashboard: calculate only when pending to avoid overriding paid snapshots
+        # Populate fee_amount from computed dues; this captures arrears correctly even when current month is paid.
         try:
-            if student.get("fee_status") == "pending":
-                fee_info = await build_fee_breakup(student, student.get("id"))
-                student["fee_amount"] = float(fee_info.get("total_fee") or 0)
-            else:
-                student["fee_amount"] = 0.0
+            fee_info = await build_fee_breakup(student, student.get("id"))
+            student["fee_amount"] = float(fee_info.get("total_fee") or 0)
+            student["fee_status"] = "pending" if student["fee_amount"] > 0 else "paid"
         except Exception:
             # On error, leave fee_amount as-is or set to 0
             student["fee_amount"] = float(student.get("fee_amount") or 0)
+            student["fee_status"] = "pending" if student["fee_amount"] > 0 else "paid"
     return students
 
 
@@ -723,8 +721,11 @@ async def upsert_student_concession(
     student_id: str,
     payload: ConcessionUpsertRequest,
     current_user: dict = Depends(get_admin_user),
-):
-    student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
+    ):
+    student = await db.students.find_one(
+        active_student_query({"id": student_id}),
+        {"_id": 0},
+    )
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
@@ -736,7 +737,10 @@ async def upsert_student_concession(
         raise HTTPException(status_code=400, detail="Invalid concession reason")
 
     now_year = datetime.now(timezone.utc).year
-    existing_concession = await db.concessions.find_one({"student_id": student_id}, {"_id": 0})
+    existing_concession = await db.concessions.find_one(
+        {"student_id": student_id},
+        {"_id": 0},
+    )
     if (
         existing_concession
         and existing_concession.get("percent") is not None
@@ -745,10 +749,17 @@ async def upsert_student_concession(
         raise HTTPException(status_code=400, detail="Concession already applied for this year and cannot be changed")
 
     now = datetime.now(timezone.utc).isoformat()
-    admin = await db.admins.find_one({"id": current_user["user_id"]}, {"_id": 0, "id": 1, "name": 1, "email": 1})
+    admin = await db.admins.find_one(
+        {"id": current_user["user_id"]},
+        {"_id": 0, "id": 1, "name": 1, "email": 1},
+    )
     applied_by = None
     if admin:
-        applied_by = {"admin_id": admin.get("id"), "name": admin.get("name"), "email": admin.get("email")}
+        applied_by = {
+            "admin_id": admin.get("id"),
+            "name": admin.get("name"),
+            "email": admin.get("email"),
+        }
 
     await db.concessions.update_one(
         {"student_id": student_id},
@@ -928,22 +939,14 @@ async def get_student_profile(current_user: dict = Depends(get_current_user)):
             created_dt = datetime.now(timezone.utc)
         student["academic_year"] = academic_year_for(created_dt)
 
-    # Month-based fee status: paid only if a payment exists for the current month.
-    current_month = month_key(datetime.now(timezone.utc))
-    payment = await db.payments.find_one(
-        {"student_id": current_user['user_id'], **payment_month_match_query(current_month)},
-        {"_id": 0, "id": 1},
-    )
-    student["fee_status"] = "paid" if payment else "pending"
-    # Populate fee_amount for the profile view
+    # Compute fee status from actual dues so arrears are reflected correctly.
     try:
-        if student.get("fee_status") == "pending":
-            fee_info = await build_fee_breakup(student, student.get("id"))
-            student["fee_amount"] = float(fee_info.get("total_fee") or 0)
-        else:
-            student["fee_amount"] = 0.0
+        fee_info = await build_fee_breakup(student, student.get("id"))
+        student["fee_amount"] = float(fee_info.get("total_fee") or 0)
+        student["fee_status"] = "pending" if student["fee_amount"] > 0 else "paid"
     except Exception:
         student["fee_amount"] = float(student.get("fee_amount") or 0)
+        student["fee_status"] = "pending" if student["fee_amount"] > 0 else "paid"
 
     return StudentResponse(**student)
 
@@ -1239,10 +1242,12 @@ def months_between(a: datetime, b: datetime) -> int:
 
 def payment_month_value(payment: dict) -> Optional[datetime]:
     paid_for_month = str(payment.get("paid_for_month") or "").strip()
-    if re.fullmatch(r"\d{4}-\d{2}", paid_for_month):
+    if re.fullmatch(r"\d{4}-\d{1,2}", paid_for_month):
         try:
             year, month = paid_for_month.split("-", 1)
-            return datetime(int(year), int(month), 1, tzinfo=timezone.utc)
+            month_num = int(month)
+            if 1 <= month_num <= 12:
+                return datetime(int(year), month_num, 1, tzinfo=timezone.utc)
         except Exception:
             pass
 
@@ -1407,24 +1412,44 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     except Exception:
         created_at = datetime.now(timezone.utc)
 
-    total = 0.0
-    now = datetime.now(timezone.utc)
-    current_month = month_start(now)
-    join_month = month_start(created_at)
-    academic_start = academic_year_start(student.get("academic_year"))
-    base_due_month = academic_start or join_month
-    if base_due_month < join_month:
-        base_due_month = join_month
-
     payments = await db.payments.find(
         {"student_id": student_id},
         {"_id": 0, "paid_for_month": 1, "paid_at": 1, "status": 1, "breakup": 1},
     ).to_list(1000)
-    paid_months = {
-        payment_month
-        for payment in payments
-        if (payment_month := payment_month_value(payment)) is not None
-    }
+
+    total = 0.0
+    now = datetime.now(timezone.utc)
+    current_month = month_start(now)
+    join_month = month_start(created_at)
+
+    academic_start = academic_year_start(student.get("academic_year"))
+    base_due_month = academic_start or join_month
+    if base_due_month < join_month:
+        base_due_month = join_month
+    paid_months = set()
+    for payment in payments:
+        if str(payment.get("status") or "success").lower() != "success":
+            continue
+        payment_month = payment_month_value(payment)
+        if payment_month is None:
+            continue
+
+        # Legacy docs without breakup are treated as full-month payments.
+        breakup_sum = payment_breakup_sum(payment)
+        if not breakup_sum:
+            paid_months.add(payment_month)
+            continue
+
+        monthly_components = (
+            float(breakup_sum.get("tuition_fee", 0) or 0)
+            + float(breakup_sum.get("bus_fee", 0) or 0)
+            + float(breakup_sum.get("late_fee", 0) or 0)
+            + float(breakup_sum.get("caution_money", 0) or 0)
+        )
+
+        # Admission/annual-only partial payments should not mark a month as fully settled.
+        if monthly_components > 0:
+            paid_months.add(payment_month)
 
     due_month_list = []
     cursor_month = base_due_month
@@ -1464,28 +1489,22 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     total += annual
 
     class_name = student.get("class_name")
-    if class_name == "Nursery":
-        tuition = 800
-    elif class_name == "LKG":
-        tuition = 850
-    elif class_name == "UKG":
-        tuition = 900
-    elif class_name == "1":
-        tuition = 1000
-    elif class_name == "2":
-        tuition = 1100
-    elif class_name == "3":
-        tuition = 1200
-    elif class_name == "4":
-        tuition = 1300
-    elif class_name == "5":
-        tuition = 1400
-    elif class_name == "6":
-        tuition = 1500
-    elif class_name == "7":
-        tuition = 1600
-    else:
-        tuition = 0
+    class_name_norm = str(class_name or "").strip().upper()
+    tuition_by_class = {
+        "NURSERY": 800,
+        "LKG": 850,
+        "JKG": 850,
+        "UKG": 900,
+        "SKG": 900,
+        "1": 1000,
+        "2": 1100,
+        "3": 1200,
+        "4": 1300,
+        "5": 1400,
+        "6": 1500,
+        "7": 1600,
+    }
+    tuition = tuition_by_class.get(class_name_norm, 0)
 
     tuition_total = tuition * due_months
     total += tuition_total
@@ -1606,7 +1625,13 @@ async def calculate_fee(student: dict):
         {"_id": 0},
     )
 
-    if payment:
+    fee_breakup = await build_fee_breakup(student_doc, student_id)
+    if include_paid_summary:
+        fee_breakup["paid_summary"] = await build_paid_fee_summary(student_doc, student_id)
+
+    # If current month is paid and there are no other dues, return the paid snapshot format.
+    # If arrears exist, return computed dues so pending fee remains accurate.
+    if payment and float(fee_breakup.get("total_fee") or 0) <= 0:
         if isinstance(payment.get("paid_at"), datetime):
             payment["paid_at"] = payment["paid_at"].isoformat()
 
@@ -1632,11 +1657,9 @@ async def calculate_fee(student: dict):
             "breakup": breakup,
         }
         if include_paid_summary:
-            response["paid_summary"] = await build_paid_fee_summary(student_doc, student_id)
+            response["paid_summary"] = fee_breakup.get("paid_summary")
         return response
-    fee_breakup = await build_fee_breakup(student_doc, student_id)
-    if include_paid_summary:
-        fee_breakup["paid_summary"] = await build_paid_fee_summary(student_doc, student_id)
+
     return fee_breakup
     
 async def calculate_concession(student):

@@ -9,8 +9,8 @@ import Loader from '@/components/ui/loader';
 
 const classOptions = [
   { value: 'Nursery', label: 'Nursery' },
-  { value: 'LKG', label: 'LKG' },
-  { value: 'UKG', label: 'UKG' },
+  { value: 'JKG', label: 'JKG' },
+  { value: 'SKG', label: 'SKG' },
   { value: '1', label: '1' },
   { value: '2', label: '2' },
   { value: '3', label: '3' },
