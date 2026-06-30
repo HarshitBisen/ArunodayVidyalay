@@ -178,11 +178,17 @@ class AdminCreateRequest(BaseModel):
 class AdminPasswordResetRequest(BaseModel):
     new_password: str = Field(..., min_length=6)
 
+class AdminPermissionsUpdateRequest(BaseModel):
+    can_manage_concession: bool
+    can_record_offline_payment: bool
+
 class AdminPublicResponse(BaseModel):
     id: str
     email: EmailStr
     name: Optional[str] = None
     is_super_admin: bool = False
+    can_manage_concession: bool = False
+    can_record_offline_payment: bool = False
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -314,6 +320,18 @@ async def require_super_admin(current_user: dict = Depends(get_admin_user)):
         raise HTTPException(status_code=403, detail="Super admin access required")
     return current_user
 
+async def get_admin_doc_or_403(current_user: dict) -> dict:
+    admin = await db.admins.find_one(
+        {"id": current_user["user_id"]},
+        {"_id": 0, "id": 1, "is_super_admin": 1, "can_manage_concession": 1, "can_record_offline_payment": 1},
+    )
+    if not admin:
+        raise HTTPException(status_code=403, detail="Admin account not found")
+    return admin
+
+def has_permission(admin: dict, permission_key: str) -> bool:
+    return bool(admin.get("is_super_admin")) or bool(admin.get(permission_key))
+
 def set_auth_cookie(response: Response, token: str) -> None:
     cookie_secure = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
     cookie_samesite = os.environ.get("COOKIE_SAMESITE", "lax")
@@ -344,6 +362,8 @@ async def startup_event():
                 "password_hash": hash_password(ADMIN_PASSWORD),
                 "name": ADMIN_NAME,
                 "is_super_admin": True,
+                "can_manage_concession": True,
+                "can_record_offline_payment": True,
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             await db.admins.insert_one(admin_data)
@@ -355,6 +375,10 @@ async def startup_event():
                 update_fields["email"] = bootstrap_email
             if not bool(existing_admin.get("is_super_admin")):
                 update_fields["is_super_admin"] = True
+            if not bool(existing_admin.get("can_manage_concession")):
+                update_fields["can_manage_concession"] = True
+            if not bool(existing_admin.get("can_record_offline_payment")):
+                update_fields["can_record_offline_payment"] = True
             if update_fields:
                 await db.admins.update_one(
                     {"id": existing_admin.get("id")},
@@ -399,6 +423,8 @@ async def login(request: LoginRequest, response: Response):
                 'email': admin.get('email') or email_in,
                 'name': admin.get('name'),
                 'is_super_admin': bool(admin.get('is_super_admin')),
+                'can_manage_concession': bool(admin.get('can_manage_concession')),
+                'can_record_offline_payment': bool(admin.get('can_record_offline_payment')),
             }
         )
 
@@ -460,6 +486,8 @@ async def create_admin(request: AdminCreateRequest, current_user: dict = Depends
         "email": email_norm,
         "name": request.name,
         "is_super_admin": False,
+        "can_manage_concession": False,
+        "can_record_offline_payment": False,
         "password_hash": hash_password(request.password),
         "created_at": now,
         "updated_at": now,
@@ -479,6 +507,46 @@ async def reset_admin_password(admin_id: str, request: AdminPasswordResetRequest
         {"$set": {"password_hash": hash_password(request.new_password), "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     return {"message": "Admin password updated"}
+
+@api_router.put("/admin/admins/{admin_id}/permissions", response_model=AdminPublicResponse)
+async def update_admin_permissions(
+    admin_id: str,
+    request: AdminPermissionsUpdateRequest,
+    current_user: dict = Depends(require_super_admin),
+):
+    admin = await db.admins.find_one({"id": admin_id}, {"_id": 0})
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin not found")
+    if bool(admin.get("is_super_admin")):
+        raise HTTPException(status_code=400, detail="Cannot modify permissions for super admin")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.admins.update_one(
+        {"id": admin_id},
+        {
+            "$set": {
+                "can_manage_concession": bool(request.can_manage_concession),
+                "can_record_offline_payment": bool(request.can_record_offline_payment),
+                "updated_at": now,
+            }
+        },
+    )
+
+    updated_admin = await db.admins.find_one({"id": admin_id}, {"_id": 0, "password_hash": 0})
+    if not updated_admin:
+        raise HTTPException(status_code=404, detail="Admin not found")
+
+    updated_admin["created_at"] = (
+        updated_admin["created_at"].isoformat()
+        if isinstance(updated_admin.get("created_at"), datetime)
+        else updated_admin.get("created_at")
+    )
+    updated_admin["updated_at"] = (
+        updated_admin["updated_at"].isoformat()
+        if isinstance(updated_admin.get("updated_at"), datetime)
+        else updated_admin.get("updated_at")
+    )
+    return updated_admin
 
 @api_router.get("/admin/students", response_model=List[StudentResponse])
 async def get_all_students(unpaid_fees: bool = False, class_name: Optional[str] = None, current_user: dict = Depends(get_admin_user)):
@@ -722,6 +790,10 @@ async def upsert_student_concession(
     payload: ConcessionUpsertRequest,
     current_user: dict = Depends(get_admin_user),
     ):
+    admin_doc = await get_admin_doc_or_403(current_user)
+    if not has_permission(admin_doc, "can_manage_concession"):
+        raise HTTPException(status_code=403, detail="You do not have permission to apply concession")
+
     student = await db.students.find_one(
         active_student_query({"id": student_id}),
         {"_id": 0},
@@ -790,6 +862,10 @@ async def upsert_student_concession(
 
 @api_router.delete("/admin/students/{student_id}/concession", response_model=ConcessionStatusResponse)
 async def delete_student_concession(student_id: str, current_user: dict = Depends(get_admin_user)):
+    admin_doc = await get_admin_doc_or_403(current_user)
+    if not has_permission(admin_doc, "can_manage_concession"):
+        raise HTTPException(status_code=403, detail="You do not have permission to manage concession")
+
     student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
@@ -856,6 +932,10 @@ async def get_all_payments(class_name: Optional[str] = None, month: Optional[str
 
 @api_router.post("/admin/students/{student_id}/mark-paid", response_model=dict)
 async def mark_student_paid_offline(student_id: str, request: OfflinePaymentRequest, current_user: dict = Depends(get_admin_user)):
+    admin_doc = await get_admin_doc_or_403(current_user)
+    if not has_permission(admin_doc, "can_record_offline_payment"):
+        raise HTTPException(status_code=403, detail="You do not have permission to record offline payments")
+
     # Admins can mark a student's fees as paid using an offline receipt number.
     student = await db.students.find_one({"id": student_id}, {"_id": 0})
     if not student:
@@ -1426,10 +1506,42 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     base_due_month = academic_start or join_month
     if base_due_month < join_month:
         base_due_month = join_month
+
+    class_name = student.get("class_name")
+    class_name_norm = str(class_name or "").strip().upper()
+    tuition_by_class = {
+        "NURSERY": 800,
+        "LKG": 850,
+        "JKG": 850,
+        "UKG": 900,
+        "SKG": 900,
+        "1": 1000,
+        "2": 1100,
+        "3": 1200,
+        "4": 1300,
+        "5": 1400,
+        "6": 1500,
+        "7": 1600,
+    }
+    tuition = tuition_by_class.get(class_name_norm, 0)
+
+    due_timeline = []
+    cursor_month = base_due_month
+    while cursor_month <= current_month:
+        due_timeline.append(cursor_month)
+        cursor_month = add_months(cursor_month, 1)
+
     paid_months = set()
-    for payment in payments:
-        if str(payment.get("status") or "success").lower() != "success":
-            continue
+    successful_payments = [
+        payment
+        for payment in payments
+        if str(payment.get("status") or "success").lower() == "success"
+    ]
+    successful_payments.sort(
+        key=lambda payment: payment_month_value(payment) or current_month
+    )
+
+    for payment in successful_payments:
         payment_month = payment_month_value(payment)
         if payment_month is None:
             continue
@@ -1439,6 +1551,19 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
         if not breakup_sum:
             paid_months.add(payment_month)
             continue
+
+        # If a payment contains tuition for multiple months in one transaction,
+        # map those months to the oldest unpaid due months up to payment month.
+        tuition_paid = float(breakup_sum.get("tuition_fee", 0) or 0)
+        if tuition > 0 and tuition_paid > 0:
+            tuition_months_paid = max(1, int(round(tuition_paid / float(tuition))))
+            allocatable_months = [
+                month
+                for month in due_timeline
+                if month <= payment_month and month not in paid_months
+            ]
+            for month in allocatable_months[:tuition_months_paid]:
+                paid_months.add(month)
 
         monthly_components = (
             float(breakup_sum.get("tuition_fee", 0) or 0)
@@ -1487,24 +1612,6 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
 
     annual = 0 if annual_paid else 1000
     total += annual
-
-    class_name = student.get("class_name")
-    class_name_norm = str(class_name or "").strip().upper()
-    tuition_by_class = {
-        "NURSERY": 800,
-        "LKG": 850,
-        "JKG": 850,
-        "UKG": 900,
-        "SKG": 900,
-        "1": 1000,
-        "2": 1100,
-        "3": 1200,
-        "4": 1300,
-        "5": 1400,
-        "6": 1500,
-        "7": 1600,
-    }
-    tuition = tuition_by_class.get(class_name_norm, 0)
 
     tuition_total = tuition * due_months
     total += tuition_total

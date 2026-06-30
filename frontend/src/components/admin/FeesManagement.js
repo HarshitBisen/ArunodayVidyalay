@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import Loader from '@/components/ui/loader';
+import { getUser } from '@/utils/auth';
 
 const classOptions = [
   { value: 'Nursery', label: 'Nursery' },
@@ -16,6 +17,10 @@ const classOptions = [
 ];
 
 export default function FeesManagement() {
+  const user = getUser();
+  const canManageConcession = Boolean(user?.is_super_admin || user?.can_manage_concession);
+  const canRecordOfflinePayment = Boolean(user?.is_super_admin || user?.can_record_offline_payment);
+
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -83,6 +88,10 @@ export default function FeesManagement() {
 
   const submitOfflinePayment = async () => {
     if (!selectedStudent) return;
+    if (!canRecordOfflinePayment) {
+      toast.error('You do not have permission to record offline payments');
+      return;
+    }
     setProcessingOffline(true);
     try {
       const payload = {
@@ -131,6 +140,10 @@ export default function FeesManagement() {
 
   const saveConcession = async () => {
     if (!concessionStudent) return;
+    if (!canManageConcession) {
+      toast.error('You do not have permission to manage concession');
+      return;
+    }
     if (concessionLocked) {
       toast.info('Concession is already applied for this year and cannot be changed');
       return;
@@ -457,7 +470,7 @@ export default function FeesManagement() {
             <Button variant="outline" onClick={() => setShowConcessionModal(false)} disabled={concessionSaving}>
               Cancel
             </Button>
-            <Button onClick={saveConcession} disabled={concessionLocked || concessionLoading || concessionSaving}>
+            <Button onClick={saveConcession} disabled={!canManageConcession || concessionLocked || concessionLoading || concessionSaving}>
               {concessionLocked ? 'Concession Applied' : concessionSaving ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
@@ -560,10 +573,17 @@ export default function FeesManagement() {
                       </div>
                     </div>
                     <div className="flex gap-2 pt-2">
-                      <Button onClick={submitOfflinePayment} disabled={processingOffline || !offlineReceipt} className="flex-1 bg-green-600 hover:bg-green-700 text-white">
+                      <Button
+                        onClick={submitOfflinePayment}
+                        disabled={!canRecordOfflinePayment || processingOffline || !offlineReceipt}
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      >
                         {processingOffline ? 'Recording...' : 'Record Payment'}
                       </Button>
                     </div>
+                    {!canRecordOfflinePayment && (
+                      <p className="text-xs font-outfit text-amber-700">Only authorized admins can record offline payments.</p>
+                    )}
                   </div>
                 )}
               </div>
