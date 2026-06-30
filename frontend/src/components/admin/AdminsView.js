@@ -21,6 +21,7 @@ export default function AdminsView() {
   const [selectedAdmin, setSelectedAdmin] = useState(null);
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [updatingPermissionsFor, setUpdatingPermissionsFor] = useState('');
 
   const fetchAdmins = async () => {
     try {
@@ -38,6 +39,37 @@ export default function AdminsView() {
   }, []);
 
   const resetForm = () => setFormData({ name: '', email: '', password: '' });
+
+  const updatePermissions = async (admin, updates) => {
+    if (!canManageAdmins) {
+      toast.error('Only super admin can update permissions');
+      return;
+    }
+    if (!admin?.id || admin?.is_super_admin) return;
+
+    const payload = {
+      can_manage_concession: Boolean(
+        updates.can_manage_concession ?? admin.can_manage_concession
+      ),
+      can_record_offline_payment: Boolean(
+        updates.can_record_offline_payment ?? admin.can_record_offline_payment
+      ),
+    };
+
+    setUpdatingPermissionsFor(admin.id);
+    try {
+      const res = await api.put(`/admin/admins/${admin.id}/permissions`, payload);
+      const updated = res.data;
+      setAdmins((prev) =>
+        prev.map((item) => (item.id === admin.id ? { ...item, ...updated } : item))
+      );
+      toast.success('Permissions updated');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update permissions');
+    } finally {
+      setUpdatingPermissionsFor('');
+    }
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -104,6 +136,7 @@ export default function AdminsView() {
                   <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Name</th>
                   <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Email</th>
                   <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Created</th>
+                  <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Permissions</th>
                   <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Actions</th>
                 </tr>
               </thead>
@@ -114,6 +147,44 @@ export default function AdminsView() {
                     <td className="font-outfit text-gray-700 py-3 px-4">{admin.email}</td>
                     <td className="font-outfit text-gray-600 py-3 px-4">
                       {admin.created_at ? new Date(admin.created_at).toLocaleString() : '—'}
+                    </td>
+                    <td className="py-3 px-4">
+                      {admin.is_super_admin ? (
+                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-1 text-xs font-outfit font-semibold text-amber-800">
+                          Super admin (all permissions)
+                        </span>
+                      ) : (
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 font-outfit text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-sky-600"
+                              checked={Boolean(admin.can_manage_concession)}
+                              disabled={!canManageAdmins || updatingPermissionsFor === admin.id}
+                              onChange={(e) =>
+                                updatePermissions(admin, {
+                                  can_manage_concession: e.target.checked,
+                                })
+                              }
+                            />
+                            Concession access
+                          </label>
+                          <label className="flex items-center gap-2 font-outfit text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-sky-600"
+                              checked={Boolean(admin.can_record_offline_payment)}
+                              disabled={!canManageAdmins || updatingPermissionsFor === admin.id}
+                              onChange={(e) =>
+                                updatePermissions(admin, {
+                                  can_record_offline_payment: e.target.checked,
+                                })
+                              }
+                            />
+                            Offline payment access
+                          </label>
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-4">
                       <Button
