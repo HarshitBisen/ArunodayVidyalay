@@ -1457,25 +1457,27 @@ async def build_paid_fee_summary(student: dict, student_id: str) -> dict:
         },
     }
 
-def calculate_late_fee(base_due_date: datetime, now: datetime) -> float:
-    # Late fee is disabled for April, May, and June.
-    # From July onwards the normal late fee rules apply.
-    if now.month in (4, 5, 6):
-        return 0.0
-
-    # Rules:
-    # - If not paid till 10th of the current month: +50.
-    # - For each fully missed month before the current month: +100 per month.
-    base_month = month_start(base_due_date)
+def calculate_late_fee(unpaid_due_months: List[datetime], now: datetime) -> float:
+    # April, May and June dues are exempt from late fee.
+    exempt_months = {4, 5, 6}
     current_month = month_start(now)
-    if current_month < base_month:
-        return 0.0
+    late_fee = 0.0
 
-    missed_full_months = max(0, months_between(base_month, current_month))
-    late_fee = missed_full_months * 100.0
-    if now.day > 10:
-        late_fee += 50.0
-    return late_fee
+    for due_month in unpaid_due_months:
+        due_month_start = month_start(due_month)
+        if due_month_start.month in exempt_months:
+            continue
+
+        # Any unpaid non-exempt month before current month is already late.
+        if due_month_start < current_month:
+            late_fee += 100.0
+            continue
+
+        # Current month late fee applies only after the 10th.
+        if due_month_start == current_month and now.day > 10:
+            late_fee += 50.0
+
+    return round(late_fee, 2)
 
 async def build_fee_breakup(student: dict, student_id: str) -> dict:
     admission = 0
@@ -1583,7 +1585,6 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
             due_month_list.append(cursor_month)
         cursor_month = add_months(cursor_month, 1)
 
-    oldest_unpaid_month = due_month_list[0] if due_month_list else current_month
     due_months = len(due_month_list)
 
     if student.get("new_student") == 'yes' and is_within_academic_year(created_at):
@@ -1647,8 +1648,8 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
 
     total += bus_fee_total
 
-    # Late fee: monthly fine based on current date when unpaid.
-    late_fee = calculate_late_fee(oldest_unpaid_month, now) if due_months > 0 else 0.0
+    # Late fee applies only to non-exempt due months; current month applies after 10th.
+    late_fee = calculate_late_fee(due_month_list, now) if due_months > 0 else 0.0
     total += late_fee
 
     try:
