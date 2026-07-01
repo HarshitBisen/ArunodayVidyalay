@@ -20,6 +20,11 @@ export default function FeesManagement() {
   const user = getUser();
   const canManageConcession = Boolean(user?.is_super_admin || user?.can_manage_concession);
   const canRecordOfflinePayment = Boolean(user?.is_super_admin || user?.can_record_offline_payment);
+  const formatMonthLabel = (monthValue) => {
+    const date = new Date(`${monthValue}-01T00:00:00Z`);
+    if (Number.isNaN(date.getTime())) return monthValue;
+    return date.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  };
 
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,7 +38,7 @@ export default function FeesManagement() {
   const [feeDetails, setFeeDetails] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [offlineReceipt, setOfflineReceipt] = useState('');
-  const [offlineMonth, setOfflineMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [selectedFeeMonths, setSelectedFeeMonths] = useState([]);
   const [offlineNote, setOfflineNote] = useState('');
   const [processingOffline, setProcessingOffline] = useState(false);
   const [showConcessionModal, setShowConcessionModal] = useState(false);
@@ -65,6 +70,19 @@ export default function FeesManagement() {
     }
   }, [selectedClasses]);
 
+  const fetchFeeDetails = useCallback(async (student, months = []) => {
+    const payload = {
+      id: student.id,
+      include_paid_summary: true,
+    };
+    if (months.length > 0) {
+      payload.selected_months = months;
+    }
+    const res = await api.post('/fees/calculate', payload);
+    setFeeDetails(res.data);
+    return res.data;
+  }, []);
+
   useEffect(() => {
     fetchStudents();
   }, [fetchStudents]);
@@ -74,12 +92,8 @@ export default function FeesManagement() {
       setSelectedStudent(student);
       setOfflineReceipt('');
       setOfflineNote('');
-      setOfflineMonth(new Date().toISOString().slice(0, 7));
-      const res = await api.post('/fees/calculate', {
-        id: student.id,
-        include_paid_summary: true,
-      });
-      setFeeDetails(res.data);
+      setSelectedFeeMonths([]);
+      await fetchFeeDetails(student, []);
       setShowFeeModal(true);
     } catch (error) {
       toast.error('Failed to calculate fee');
@@ -97,6 +111,9 @@ export default function FeesManagement() {
       const payload = {
         receipt: offlineReceipt,
       };
+      if (selectedFeeMonths.length > 0) {
+        payload.selected_months = selectedFeeMonths;
+      }
       const res = await api.post(`/admin/students/${selectedStudent.id}/mark-paid`, payload);
       const adminMeta = res.data?.admin_marked_by;
       const by = adminMeta ? adminMeta.name || adminMeta.email || adminMeta.admin_id || '' : '';
@@ -166,6 +183,31 @@ export default function FeesManagement() {
       toast.error(error.response?.data?.detail || 'Failed to save concession');
     } finally {
       setConcessionSaving(false);
+    }
+  };
+
+  const togglePendingMonth = async (monthValue) => {
+    if (!selectedStudent || isPaidSummary) return;
+    const nextMonths = selectedFeeMonths.includes(monthValue)
+      ? selectedFeeMonths.filter((month) => month !== monthValue)
+      : [...selectedFeeMonths, monthValue];
+
+    setSelectedFeeMonths(nextMonths);
+    try {
+      await fetchFeeDetails(selectedStudent, nextMonths);
+    } catch (error) {
+      setSelectedFeeMonths(selectedFeeMonths);
+      toast.error('Failed to update fee for selected months');
+    }
+  };
+
+  const resetPendingMonths = async () => {
+    if (!selectedStudent || isPaidSummary) return;
+    setSelectedFeeMonths([]);
+    try {
+      await fetchFeeDetails(selectedStudent, []);
+    } catch (error) {
+      toast.error('Failed to reset month selection');
     }
   };
 
@@ -478,25 +520,72 @@ export default function FeesManagement() {
       </Dialog>
 
       {showFeeModal && feeDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b bg-gradient-to-r from-sunny-blue/10 to-transparent px-6 py-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-3 pt-6 backdrop-blur-sm sm:p-4">
+          <div className="flex max-h-[calc(100vh-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl sm:max-h-[calc(100vh-2rem)]">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b bg-white/95 bg-gradient-to-r from-sunny-blue/10 to-transparent px-4 py-3 backdrop-blur-sm sm:px-6 sm:py-4">
               <div>
-                <h2 className="text-xl font-fredoka font-bold text-sunny-navy">Fee Details</h2>
-                <p className="mt-1 text-sm font-outfit text-gray-600">
+                <h2 className="text-lg font-fredoka font-bold text-sunny-navy sm:text-xl">Fee Details</h2>
+                <p className="mt-1 text-xs font-outfit text-gray-600 sm:text-sm">
                   {isPaidSummary ? 'Cumulative fees paid this academic year' : 'Breakdown of pending fees'}
                 </p>
               </div>
               <button
-                onClick={() => setShowFeeModal(false)}
-                className="ml-auto bg-gray-200 hover:bg-gray-300 text-gray-900 rounded-lg px-4 py-2 text-sm font-outfit font-semibold"
+                onClick={() => {
+                  setShowFeeModal(false);
+                  setSelectedStudent(null);
+                  setSelectedFeeMonths([]);
+                }}
+                className="ml-auto shrink-0 rounded-lg bg-gray-200 px-3 py-2 text-sm font-outfit font-semibold text-gray-900 hover:bg-gray-300 sm:px-4"
               >
                 ✕ Close
               </button>
             </div>
 
-            <div className="px-6 py-5">
-              <div className="space-y-3 text-sm">
+            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+              {!isPaidSummary && Array.isArray(feeDetails?.breakup?.meta?.due_months) && feeDetails.breakup.meta.due_months.length > 0 && (
+                <div className="mb-4 rounded-xl border border-sunny-border bg-sunny-cream/30 p-3 sm:p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                    <div>
+                      <h3 className="font-fredoka text-base font-semibold text-sunny-navy sm:text-lg">Select pending months</h3>
+                      <p className="text-[11px] font-outfit text-gray-600 sm:text-xs">
+                        Leave all months unselected to show the full pending fee.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetPendingMonths}
+                      className="text-xs font-outfit font-semibold text-sunny-blue hover:text-sunny-navy sm:text-sm"
+                    >
+                      Show full pending fee
+                    </button>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {feeDetails.breakup.meta.due_months.map((monthValue) => {
+                      const isSelected = selectedFeeMonths.includes(monthValue);
+                      return (
+                        <button
+                          key={monthValue}
+                          type="button"
+                          onClick={() => togglePendingMonth(monthValue)}
+                          className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-outfit transition sm:px-3 sm:py-1.5 sm:text-sm ${isSelected ? 'border-sunny-navy bg-sunny-navy text-white shadow-sm' : 'border-gray-200 bg-white text-gray-700 hover:border-sunny-blue hover:text-sunny-navy'}`}
+                        >
+                          <span>{formatMonthLabel(monthValue)}</span>
+                          {isSelected && <Check size={14} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {selectedFeeMonths.length > 0 && (
+                    <div className="mt-3 text-[11px] font-outfit text-gray-600 sm:text-xs">
+                      Selected months: {selectedFeeMonths.map((monthValue) => formatMonthLabel(monthValue)).join(', ')}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2.5 text-sm sm:space-y-3">
                 <div className="flex items-center justify-between font-outfit text-gray-700">
                   <span>Admission Fee</span>
                   <span className="font-semibold tabular-nums text-gray-900">₹{Number(displayFeeDetails?.admission_fee ?? 0).toLocaleString()}</span>
@@ -545,34 +634,35 @@ export default function FeesManagement() {
                 )}
               </div>
 
-              <div className="my-5 h-px bg-gray-100" />
+              <div className="my-4 h-px bg-gray-100 sm:my-5" />
 
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 <div className="flex items-center justify-between rounded-xl bg-sunny-navy px-4 py-3 text-white">
                   <div className="font-outfit">
                     <div className="text-xs opacity-90">{isPaidSummary ? 'Total Paid' : 'Total Pending'}</div>
-                    <div className="text-lg font-bold tabular-nums">₹{displayTotal.toLocaleString()}</div>
+                    <div className="text-base font-bold tabular-nums sm:text-lg">₹{displayTotal.toLocaleString()}</div>
                   </div>
                 </div>
 
                 {Number(feeDetails.total_fee) > 0 && (
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
-                    <h3 className="font-fredoka font-semibold text-sunny-navy">Mark as Cash Payment</h3>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-3 sm:p-4">
+                    <h3 className="font-fredoka text-base font-semibold text-sunny-navy sm:text-lg">Mark as Cash Payment</h3>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="grid gap-2 col-span-2">
                         <Label className="text-sm font-outfit font-semibold">Receipt Number *</Label>
                         <Input value={offlineReceipt} onChange={(e) => setOfflineReceipt(e.target.value)} placeholder="Enter receipt number" />
                       </div>
-                      <div className="grid gap-2">
-                        <Label className="text-sm font-outfit font-semibold">Month (YYYY-MM)</Label>
-                        <Input value={offlineMonth} onChange={(e) => setOfflineMonth(e.target.value)} placeholder={new Date().toISOString().slice(0, 7)} />
-                      </div>
                       <div className="grid gap-2 col-span-2">
                         <Label className="text-sm font-outfit font-semibold">Note (optional)</Label>
                         <Input value={offlineNote} onChange={(e) => setOfflineNote(e.target.value)} placeholder="Cash receipt details" />
                       </div>
+                      <div className="col-span-2 rounded-lg bg-white px-3 py-2 text-[11px] font-outfit text-gray-600 sm:text-xs">
+                        {selectedFeeMonths.length > 0
+                          ? `Payment will be recorded for ${selectedFeeMonths.map((monthValue) => formatMonthLabel(monthValue)).join(', ')}.`
+                          : 'Payment will be recorded against the full pending fee.'}
+                      </div>
                     </div>
-                    <div className="flex gap-2 pt-2">
+                    <div className="flex gap-2 pt-1 sm:pt-2">
                       <Button
                         onClick={submitOfflinePayment}
                         disabled={!canRecordOfflinePayment || processingOffline || !offlineReceipt}

@@ -201,6 +201,7 @@ class FeePayment(BaseModel):
     transaction_id: str
     status: str = "success"
     paid_for_month: Optional[str] = None  # YYYY-MM
+    selected_months: Optional[List[str]] = None
     breakup: Optional[dict] = None
     paid_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -223,6 +224,7 @@ class OfflinePaymentRequest(BaseModel):
     receipt: str
     amount: Optional[float] = None
     paid_for_month: Optional[str] = None
+    selected_months: Optional[List[str]] = None
     note: Optional[str] = None
 
 class ContactForm(BaseModel):
@@ -941,20 +943,28 @@ async def mark_student_paid_offline(student_id: str, request: OfflinePaymentRequ
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    # Determine target month
     now = datetime.now(timezone.utc)
-    target_month = request.paid_for_month or month_key(now)
-
-    # Prevent duplicate payments for the same month
-    existing_payment = await db.payments.find_one(
-        {"student_id": student_id, **payment_month_match_query(target_month)},
-        {"_id": 0, "id": 1},
-    )
-    if existing_payment:
-        raise HTTPException(status_code=400, detail="Fee already paid for this month")
+    requested_months = normalize_month_keys(request.selected_months)
+    if not requested_months and request.paid_for_month:
+        requested_months = normalize_month_keys([request.paid_for_month])
 
     # Build fee breakup and amount
-    fee = await build_fee_breakup(student, student_id)
+    fee = await build_fee_breakup(student, student_id, requested_months or None)
+    billed_months = normalize_month_keys(fee.get("breakup", {}).get("meta", {}).get("selected_months"))
+    if not billed_months:
+        billed_months = normalize_month_keys(fee.get("breakup", {}).get("meta", {}).get("due_months"))
+    if not billed_months:
+        billed_months = [month_key(now)]
+
+    # Prevent duplicate payments for any covered month.
+    for month_value in billed_months:
+        existing_payment = await db.payments.find_one(
+            {"student_id": student_id, **payment_month_match_query(month_value)},
+            {"_id": 0, "id": 1},
+        )
+        if existing_payment:
+            raise HTTPException(status_code=400, detail="Fee already paid for one of the selected months")
+
     payable = float(fee.get("total_fee") or 0)
     if payable <= 0:
         raise HTTPException(status_code=400, detail="Invalid payable amount")
@@ -968,7 +978,8 @@ async def mark_student_paid_offline(student_id: str, request: OfflinePaymentRequ
         amount=payable,
         payment_method="Offline",
         transaction_id=request.receipt,
-        paid_for_month=target_month,
+        paid_for_month=billed_months[0],
+        selected_months=billed_months,
         breakup=fee.get("breakup"),
         status="success",
     )
@@ -1292,14 +1303,49 @@ def add_months(dt: datetime, months: int) -> datetime:
 def month_key(dt: datetime) -> str:
     return f"{dt.year:04d}-{dt.month:02d}"
 
+def normalize_month_key(value: object) -> Optional[str]:
+    raw_value = str(value or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{1,2}", raw_value):
+        return None
+    try:
+        year_text, month_text = raw_value.split("-", 1)
+        year = int(year_text)
+        month = int(month_text)
+    except Exception:
+        return None
+    if 1 <= month <= 12:
+        return f"{year:04d}-{month:02d}"
+    return None
+
+def month_key_to_datetime(month_value: str) -> Optional[datetime]:
+    normalized = normalize_month_key(month_value)
+    if not normalized:
+        return None
+    year_text, month_text = normalized.split("-", 1)
+    return datetime(int(year_text), int(month_text), 1, tzinfo=timezone.utc)
+
+def normalize_month_keys(values: Optional[List[str]]) -> List[str]:
+    if not isinstance(values, list):
+        return []
+    normalized_values: List[str] = []
+    seen = set()
+    for value in values:
+        normalized = normalize_month_key(value)
+        if normalized and normalized not in seen:
+            normalized_values.append(normalized)
+            seen.add(normalized)
+    return normalized_values
+
 def payment_month_match_query(month: str) -> dict:
     # Supports:
     # - New docs: explicit paid_for_month="YYYY-MM"
+    # - Multi-month docs: selected_months contains the covered month
     # - Older docs: paid_at stored as an ISO string (prefix match)
     # - Some older docs: paid_at stored as a datetime (range match)
+    normalized_month = normalize_month_key(month) or month
     start = end = None
     try:
-        y, m = month.split("-", 1)
+        y, m = normalized_month.split("-", 1)
         year = int(y)
         mon = int(m)
         start = datetime(year, mon, 1, tzinfo=timezone.utc)
@@ -1308,11 +1354,12 @@ def payment_month_match_query(month: str) -> dict:
         pass
 
     ors = [
-        {"paid_for_month": month},
-        {"paid_for_month": {"$exists": False}, "paid_at": {"$regex": f"^{month}"}},
+        {"paid_for_month": normalized_month},
+        {"selected_months": normalized_month},
+        {"paid_for_month": {"$exists": False}, "paid_at": {"$regex": f"^{normalized_month}"}},
     ]
     if start and end:
-        ors.append({"paid_for_month": {"$exists": False}, "paid_at": {"$gte": start, "$lt": end}})
+        ors.append({"paid_for_month": {"$exists": False}, "selected_months": {"$exists": False}, "paid_at": {"$gte": start, "$lt": end}})
 
     return {"$or": ors}
 
@@ -1320,28 +1367,33 @@ def months_between(a: datetime, b: datetime) -> int:
     # Number of whole month boundaries between a and b (both expected at month starts).
     return (b.year - a.year) * 12 + (b.month - a.month)
 
-def payment_month_value(payment: dict) -> Optional[datetime]:
-    paid_for_month = str(payment.get("paid_for_month") or "").strip()
-    if re.fullmatch(r"\d{4}-\d{1,2}", paid_for_month):
-        try:
-            year, month = paid_for_month.split("-", 1)
-            month_num = int(month)
-            if 1 <= month_num <= 12:
-                return datetime(int(year), month_num, 1, tzinfo=timezone.utc)
-        except Exception:
-            pass
+def payment_covered_months(payment: dict) -> List[datetime]:
+    selected_months = normalize_month_keys(payment.get("selected_months"))
+    covered_months = [month_key_to_datetime(month_value) for month_value in selected_months]
+    covered_months = [month for month in covered_months if month is not None]
+    if covered_months:
+        return covered_months
+
+    paid_for_month = normalize_month_key(payment.get("paid_for_month"))
+    if paid_for_month:
+        month_value = month_key_to_datetime(paid_for_month)
+        if month_value:
+            return [month_value]
 
     paid_at = payment.get("paid_at")
     try:
         if isinstance(paid_at, datetime):
-            return month_start(paid_at)
+            return [month_start(paid_at)]
         if isinstance(paid_at, str) and paid_at:
-            # Handle ISO 8601 with Z suffix
             iso_str = paid_at.replace('Z', '+00:00')
-            return month_start(datetime.fromisoformat(iso_str))
+            return [month_start(datetime.fromisoformat(iso_str))]
     except Exception:
-        return None
-    return None
+        return []
+    return []
+
+def payment_month_value(payment: dict) -> Optional[datetime]:
+    covered_months = payment_covered_months(payment)
+    return min(covered_months) if covered_months else None
 
 def payment_breakup_sum(payment: dict) -> dict:
     breakup = payment.get("breakup") or {}
@@ -1479,7 +1531,7 @@ def calculate_late_fee(unpaid_due_months: List[datetime], now: datetime) -> floa
 
     return round(late_fee, 2)
 
-async def build_fee_breakup(student: dict, student_id: str) -> dict:
+async def build_fee_breakup(student: dict, student_id: str, selected_months: Optional[List[str]] = None) -> dict:
     admission = 0
     caution = 0
 
@@ -1539,30 +1591,33 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
         for payment in payments
         if str(payment.get("status") or "success").lower() == "success"
     ]
-    successful_payments.sort(
-        key=lambda payment: payment_month_value(payment) or current_month
-    )
+    successful_payments.sort(key=lambda payment: payment_month_value(payment) or current_month)
 
     for payment in successful_payments:
-        payment_month = payment_month_value(payment)
-        if payment_month is None:
+        payment_months = payment_covered_months(payment)
+        if not payment_months:
             continue
 
-        # Legacy docs without breakup are treated as full-month payments.
         breakup_sum = payment_breakup_sum(payment)
+
+        # Legacy docs without breakup are treated as full-month payments.
         if not breakup_sum:
-            paid_months.add(payment_month)
+            for payment_month in payment_months:
+                if payment_month < base_due_month or payment_month > current_month:
+                    continue
+                paid_months.add(payment_month)
             continue
 
         # If a payment contains tuition for multiple months in one transaction,
-        # map those months to the oldest unpaid due months up to payment month.
+        # map those months to the oldest unpaid due months up to the latest covered month.
         tuition_paid = float(breakup_sum.get("tuition_fee", 0) or 0)
+        latest_payment_month = payment_months[-1]
         if tuition > 0 and tuition_paid > 0:
             tuition_months_paid = max(1, int(round(tuition_paid / float(tuition))))
             allocatable_months = [
                 month
                 for month in due_timeline
-                if month <= payment_month and month not in paid_months
+                if month <= latest_payment_month and month not in paid_months
             ]
             for month in allocatable_months[:tuition_months_paid]:
                 paid_months.add(month)
@@ -1576,7 +1631,10 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
 
         # Admission/annual-only partial payments should not mark a month as fully settled.
         if monthly_components > 0:
-            paid_months.add(payment_month)
+            for payment_month in payment_months:
+                if payment_month < base_due_month or payment_month > current_month:
+                    continue
+                paid_months.add(payment_month)
 
     due_month_list = []
     cursor_month = base_due_month
@@ -1585,7 +1643,13 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
             due_month_list.append(cursor_month)
         cursor_month = add_months(cursor_month, 1)
 
-    due_months = len(due_month_list)
+    selected_month_keys = normalize_month_keys(selected_months)
+    if selected_month_keys:
+        selected_due_month_list = [month for month in due_month_list if month_key(month) in set(selected_month_keys)]
+    else:
+        selected_due_month_list = due_month_list
+
+    due_months = len(selected_due_month_list)
 
     if student.get("new_student") == 'yes' and is_within_academic_year(created_at):
         admission_paid = any(
@@ -1641,7 +1705,7 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
             bus_fee = 1400
 
         bus_fee_total = 0.0
-        for due_month in due_month_list:
+        for due_month in selected_due_month_list:
             if due_month.month != 6:
                 bus_fee_total += bus_fee
         bus_fee_total = round(bus_fee_total, 2)
@@ -1649,7 +1713,7 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
     total += bus_fee_total
 
     # Late fee applies only to non-exempt due months; current month applies after 10th.
-    late_fee = calculate_late_fee(due_month_list, now) if due_months > 0 else 0.0
+    late_fee = calculate_late_fee(selected_due_month_list, now) if due_months > 0 else 0.0
     total += late_fee
 
     try:
@@ -1707,6 +1771,12 @@ async def build_fee_breakup(student: dict, student_id: str) -> dict:
             "subs": subs_items,
             "total": total_fee,
             "meta": {
+                "due_months": [month_key(month) for month in due_month_list],
+                "selected_months": [month_key(month) for month in selected_due_month_list],
+                "period": {
+                    "from": month_key(selected_due_month_list[0]) if selected_due_month_list else month_key(base_due_month),
+                    "to": month_key(selected_due_month_list[-1]) if selected_due_month_list else month_key(current_month),
+                },
                 **({"concession": concession_meta} if concession_meta else {}),
             },
         },
@@ -1733,7 +1803,7 @@ async def calculate_fee(student: dict):
         {"_id": 0},
     )
 
-    fee_breakup = await build_fee_breakup(student_doc, student_id)
+    fee_breakup = await build_fee_breakup(student_doc, student_id, student.get("selected_months"))
     if include_paid_summary:
         fee_breakup["paid_summary"] = await build_paid_fee_summary(student_doc, student_id)
 
