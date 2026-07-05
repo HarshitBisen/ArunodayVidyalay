@@ -66,6 +66,7 @@ class Student(BaseModel):
     new_student: str
     pickup_location: str 
     distance_school: Optional[float] = Field(default=None, ge=0)
+    bus_fee_start_month: Optional[str] = None  # YYYY-MM
     fee_cycle: str = 'm'  # monthly
     academic_year: str
     fee_status: str = "pending"  # pending, paid
@@ -89,17 +90,30 @@ class StudentCreate(BaseModel):
     new_student: str
     pickup_location: str 
     distance_school: Optional[float] = Field(default=None, ge=0)
+    bus_fee_start_month: Optional[str] = None  # YYYY-MM
     academic_year: str
 
     @model_validator(mode="after")
     def validate_bus_fields(self):
         bus_opted = str(self.bus_opted or "").strip().lower()
         pickup = str(self.pickup_location or "").strip()
+        bus_fee_start_month = str(self.bus_fee_start_month or "").strip()
         if bus_opted == "yes":
             if not pickup:
                 raise ValueError("pickup_location is required when bus_opted is yes")
             if self.distance_school is None:
                 raise ValueError("distance_school is required when bus_opted is yes")
+            if not bus_fee_start_month:
+                raise ValueError("bus_fee_start_month is required when bus_opted is yes")
+            if not re.fullmatch(r"\d{4}-\d{1,2}", bus_fee_start_month):
+                raise ValueError("bus_fee_start_month must be in YYYY-MM format")
+            year_text, month_text = bus_fee_start_month.split("-", 1)
+            month = int(month_text)
+            if month < 1 or month > 12:
+                raise ValueError("bus_fee_start_month must be a valid month")
+            normalized_bus_month = f"{int(year_text):04d}-{month:02d}"
+            if not is_in_current_academic_year(normalized_bus_month):
+                raise ValueError("bus_fee_start_month must be in current academic year (April to March)")
         return self
 
 class StudentUpdate(BaseModel):
@@ -114,6 +128,7 @@ class StudentUpdate(BaseModel):
     bus_opted: Optional[str] = None
     pickup_location: Optional[str] = None
     distance_school: Optional[float] = Field(default=None, ge=0)
+    bus_fee_start_month: Optional[str] = None
     academic_year: Optional[str] = None
 
 class StudentResponse(BaseModel):
@@ -134,6 +149,7 @@ class StudentResponse(BaseModel):
     new_student: Optional[str] = None
     pickup_location: Optional[str] = None
     distance_school: Optional[float] = None
+    bus_fee_start_month: Optional[str] = None
     fee_status: Optional[str] = None
     fee_amount: Optional[float] = None
     academic_year: Optional[str] = None
@@ -704,6 +720,7 @@ async def create_student(student_data: StudentCreate, current_user: dict = Depen
         new_student=student_data.new_student,
         pickup_location=student_data.pickup_location,
         distance_school=student_data.distance_school,
+        bus_fee_start_month=normalize_month_key(student_data.bus_fee_start_month),
         academic_year=(student_data.academic_year or academic_year_for(datetime.now(timezone.utc))),
     )
     
@@ -725,6 +742,18 @@ async def update_student(student_id: str, student_data: StudentUpdate, current_u
         if not update_data["academic_year"] or not str(update_data["academic_year"]).strip():
             raise HTTPException(status_code=400, detail="Academic year is required")
 
+    if "bus_fee_start_month" in update_data:
+        raw_bus_month = update_data.get("bus_fee_start_month")
+        if raw_bus_month in (None, ""):
+            update_data["bus_fee_start_month"] = None
+        else:
+            normalized_bus_month = normalize_month_key(raw_bus_month)
+            if not normalized_bus_month:
+                raise HTTPException(status_code=400, detail="Bus fee start month must be in YYYY-MM format")
+            if not is_in_current_academic_year(normalized_bus_month):
+                raise HTTPException(status_code=400, detail="Bus fee start month must be in current academic year (April to March)")
+            update_data["bus_fee_start_month"] = normalized_bus_month
+
     # If bus service is opted (either already or being updated to yes), pickup location and distance are mandatory.
     merged = {**student, **update_data}
     bus_opted = str(merged.get("bus_opted") or "").strip().lower()
@@ -734,6 +763,12 @@ async def update_student(student_id: str, student_data: StudentUpdate, current_u
             raise HTTPException(status_code=400, detail="Pickup location is required when bus service is opted")
         if merged.get("distance_school") is None:
             raise HTTPException(status_code=400, detail="Distance from school is required when bus service is opted")
+        bus_fee_start_month = normalize_month_key(merged.get("bus_fee_start_month"))
+        if not bus_fee_start_month:
+            raise HTTPException(status_code=400, detail="Bus fee start month is required when bus service is opted")
+        update_data["bus_fee_start_month"] = bus_fee_start_month
+    else:
+        update_data["bus_fee_start_month"] = None
     if update_data:
         update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
         await db.students.update_one(active_student_query({"id": student_id}), {"$set": update_data})
@@ -785,6 +820,36 @@ async def get_student_concession(student_id: str, current_user: dict = Depends(g
         locked=bool(concession_year == now_year),
         year=concession_year,
     )
+
+@api_router.get("/admin/students/{student_id}/bus-paid-months", response_model=dict)
+async def get_student_bus_paid_months(student_id: str, current_user: dict = Depends(get_admin_user)):
+    student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0, "id": 1})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    valid_current_ay_months = set(month_keys_in_current_academic_year())
+    payments = await db.payments.find(
+        {"student_id": student_id},
+        {"_id": 0, "status": 1, "paid_for_month": 1, "selected_months": 1, "paid_at": 1, "breakup": 1},
+    ).to_list(1000)
+
+    paid_months = set()
+    for payment in payments:
+        if str(payment.get("status") or "success").lower() != "success":
+            continue
+
+        breakup_sum = payment_breakup_sum(payment)
+        if not breakup_sum:
+            continue
+        if float(breakup_sum.get("bus_fee", 0) or 0) <= 0:
+            continue
+
+        for covered_month in payment_covered_months(payment):
+            month_value = month_key(covered_month)
+            if month_value in valid_current_ay_months:
+                paid_months.add(month_value)
+
+    return {"months": sorted(list(paid_months))}
 
 @api_router.put("/admin/students/{student_id}/concession", response_model=ConcessionStatusResponse)
 async def upsert_student_concession(
@@ -956,13 +1021,9 @@ async def mark_student_paid_offline(student_id: str, request: OfflinePaymentRequ
     if not billed_months:
         billed_months = [month_key(now)]
 
-    # Prevent duplicate payments for any covered month.
+    # Prevent duplicate payments only when a selected month has no remaining dues.
     for month_value in billed_months:
-        existing_payment = await db.payments.find_one(
-            {"student_id": student_id, **payment_month_match_query(month_value)},
-            {"_id": 0, "id": 1},
-        )
-        if existing_payment:
+        if not await month_has_pending_fee(student, student_id, month_value):
             raise HTTPException(status_code=400, detail="Fee already paid for one of the selected months")
 
     payable = float(fee.get("total_fee") or 0)
@@ -1054,11 +1115,7 @@ async def create_razorpay_order(order_request: RazorpayOrderRequest, current_use
 
     now = datetime.now(timezone.utc)
     current_month = month_key(now)
-    existing_payment = await db.payments.find_one(
-        {"student_id": current_user['user_id'], **payment_month_match_query(current_month)},
-        {"_id": 0, "id": 1},
-    )
-    if existing_payment:
+    if not await month_has_pending_fee(student, current_user['user_id'], current_month):
         raise HTTPException(status_code=400, detail="Fee already paid for this month")
 
     fee = await build_fee_breakup(student, current_user['user_id'])
@@ -1106,11 +1163,7 @@ async def verify_razorpay_payment(request: RazorpayPaymentVerificationRequest, c
 
     now = datetime.now(timezone.utc)
     current_month = month_key(now)
-    existing_payment = await db.payments.find_one(
-        {"student_id": current_user['user_id'], **payment_month_match_query(current_month)},
-        {"_id": 0, "id": 1},
-    )
-    if existing_payment:
+    if not await month_has_pending_fee(student, current_user['user_id'], current_month):
         raise HTTPException(status_code=400, detail="Fee already paid for this month")
 
     try:
@@ -1181,11 +1234,7 @@ async def pay_fee(payment_data: FeePaymentCreate, current_user: dict = Depends(g
     # Month-based payment: allow paying again in future months, but block duplicates in the same month.
     now = datetime.now(timezone.utc)
     current_month = month_key(now)
-    existing_payment = await db.payments.find_one(
-        {"student_id": current_user["user_id"], **payment_month_match_query(current_month)},
-        {"_id": 0, "id": 1},
-    )
-    if existing_payment:
+    if not await month_has_pending_fee(student, current_user["user_id"], current_month):
         raise HTTPException(status_code=400, detail="Fee already paid for this month")
 
     fee = await build_fee_breakup(student, current_user["user_id"])
@@ -1291,6 +1340,30 @@ def academic_year_start(academic_year: Optional[str]) -> Optional[datetime]:
         return None
     return datetime(start_year, 4, 1, tzinfo=timezone.utc)
 
+def academic_year_end_month(academic_year: Optional[str]) -> Optional[datetime]:
+    # Academic year ends in March of the next calendar year.
+    if not academic_year:
+        return None
+    try:
+        start_year = int(str(academic_year).split("-")[0])
+    except Exception:
+        return None
+    return datetime(start_year + 1, 3, 1, tzinfo=timezone.utc)
+
+def current_academic_year_bounds() -> tuple[datetime, datetime]:
+    now = datetime.now(timezone.utc)
+    start_year = now.year if now.month >= 4 else now.year - 1
+    start = datetime(start_year, 4, 1, tzinfo=timezone.utc)
+    end = datetime(start_year + 1, 3, 1, tzinfo=timezone.utc)
+    return start, end
+
+def is_in_current_academic_year(month_value: str) -> bool:
+    month_dt = month_key_to_datetime(month_value)
+    if not month_dt:
+        return False
+    start, end = current_academic_year_bounds()
+    return start <= month_dt <= end
+
 def month_start(dt: datetime) -> datetime:
     return datetime(dt.year, dt.month, 1, tzinfo=dt.tzinfo or timezone.utc)
 
@@ -1335,6 +1408,16 @@ def normalize_month_keys(values: Optional[List[str]]) -> List[str]:
             normalized_values.append(normalized)
             seen.add(normalized)
     return normalized_values
+
+def month_keys_in_current_academic_year() -> List[str]:
+    start, end = current_academic_year_bounds()
+    keys: List[str] = []
+    cursor = month_start(start)
+    end_month = month_start(end)
+    while cursor <= end_month:
+        keys.append(month_key(cursor))
+        cursor = add_months(cursor, 1)
+    return keys
 
 def payment_month_match_query(month: str) -> dict:
     # Supports:
@@ -1636,20 +1719,18 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
                     continue
                 paid_months.add(payment_month)
 
-    due_month_list = []
+    tuition_due_month_list = []
     cursor_month = base_due_month
     while cursor_month <= current_month:
         if cursor_month not in paid_months:
-            due_month_list.append(cursor_month)
+            tuition_due_month_list.append(cursor_month)
         cursor_month = add_months(cursor_month, 1)
 
-    selected_month_keys = normalize_month_keys(selected_months)
-    if selected_month_keys:
-        selected_due_month_list = [month for month in due_month_list if month_key(month) in set(selected_month_keys)]
-    else:
-        selected_due_month_list = due_month_list
-
-    due_months = len(selected_due_month_list)
+    configured_bus_start = month_key_to_datetime(str(student.get("bus_fee_start_month") or ""))
+    if configured_bus_start is None:
+        configured_bus_start = base_due_month
+    if configured_bus_start < base_due_month:
+        configured_bus_start = base_due_month
 
     if student.get("new_student") == 'yes' and is_within_academic_year(created_at):
         admission_paid = any(
@@ -1662,7 +1743,7 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
         total += admission
 
     annual_paid = False
-    academic_year_end = add_months(base_due_month, 12) if base_due_month else None
+    academic_year_end = add_months(academic_start, 12) if academic_start else add_months(base_due_month, 12)
     for payment in payments:
         if str(payment.get("status") or "success").lower() != "success":
             continue
@@ -1678,9 +1759,6 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
     annual = 0 if annual_paid else 1000
     total += annual
 
-    tuition_total = tuition * due_months
-    total += tuition_total
-
     bus_opted = str(student.get("bus_opted") or "").strip().lower()
     distance = student.get("distance_school")
     try:
@@ -1688,10 +1766,12 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
     except Exception:
         distance = 0.0
 
+    bus_due_month_list: List[datetime] = []
+
     # Bus fee applies only when the student has opted for bus service.
-    # June is waived only for the June month, not for the entire pending range.
     if bus_opted != "yes" or distance <= 0:
-        bus_fee_total = 0.0
+        bus_paid_months = set()
+        bus_fee_effective_from = None
     else:
         if distance < 2.5:
             bus_fee = 600
@@ -1704,16 +1784,62 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
         else:
             bus_fee = 1400
 
-        bus_fee_total = 0.0
-        for due_month in selected_due_month_list:
-            if due_month.month != 6:
-                bus_fee_total += bus_fee
-        bus_fee_total = round(bus_fee_total, 2)
+        bus_paid_months = set()
+        for payment in successful_payments:
+            payment_months = payment_covered_months(payment)
+            if not payment_months:
+                continue
+
+            breakup_sum = payment_breakup_sum(payment)
+            if not breakup_sum:
+                for payment_month in payment_months:
+                    if base_due_month <= payment_month <= current_month:
+                        bus_paid_months.add(payment_month)
+                continue
+
+            if float(breakup_sum.get("bus_fee", 0) or 0) <= 0:
+                continue
+            for payment_month in payment_months:
+                if base_due_month <= payment_month <= current_month:
+                    bus_paid_months.add(payment_month)
+
+        bus_fee_effective_from = configured_bus_start
+        while bus_fee_effective_from <= current_month:
+            if bus_fee_effective_from in bus_paid_months:
+                bus_fee_effective_from = add_months(bus_fee_effective_from, 1)
+                continue
+            break
+
+        cursor_month = max(base_due_month, configured_bus_start)
+        while cursor_month <= current_month:
+            if cursor_month not in bus_paid_months:
+                bus_due_month_list.append(cursor_month)
+            cursor_month = add_months(cursor_month, 1)
+
+    due_month_map = {month_key(month): month for month in tuition_due_month_list}
+    for month in bus_due_month_list:
+        due_month_map[month_key(month)] = month
+    due_month_list = sorted(due_month_map.values())
+
+    selected_month_keys = normalize_month_keys(selected_months)
+    if selected_month_keys:
+        selected_due_month_list = [month for month in due_month_list if month_key(month) in set(selected_month_keys)]
+    else:
+        selected_due_month_list = due_month_list
+
+    tuition_due_keys = {month_key(month) for month in tuition_due_month_list}
+    selected_tuition_due_months = [month for month in selected_due_month_list if month_key(month) in tuition_due_keys]
+    tuition_total = tuition * len(selected_tuition_due_months)
+    total += tuition_total
+
+    bus_due_keys = {month_key(month) for month in bus_due_month_list}
+    selected_bus_due_months = [month for month in selected_due_month_list if month_key(month) in bus_due_keys]
+    bus_fee_total = round(bus_fee * len(selected_bus_due_months), 2) if bus_opted == "yes" and distance > 0 else 0.0
 
     total += bus_fee_total
 
     # Late fee applies only to non-exempt due months; current month applies after 10th.
-    late_fee = calculate_late_fee(selected_due_month_list, now) if due_months > 0 else 0.0
+    late_fee = calculate_late_fee(selected_due_month_list, now) if len(selected_due_month_list) > 0 else 0.0
     total += late_fee
 
     try:
@@ -1773,6 +1899,8 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
             "meta": {
                 "due_months": [month_key(month) for month in due_month_list],
                 "selected_months": [month_key(month) for month in selected_due_month_list],
+                "bus_fee_start_month": month_key(configured_bus_start) if bus_opted == "yes" and distance > 0 else None,
+                "bus_fee_effective_from": month_key(bus_fee_effective_from) if bus_fee_effective_from else None,
                 "period": {
                     "from": month_key(selected_due_month_list[0]) if selected_due_month_list else month_key(base_due_month),
                     "to": month_key(selected_due_month_list[-1]) if selected_due_month_list else month_key(current_month),
@@ -1781,6 +1909,13 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
             },
         },
     }
+
+async def month_has_pending_fee(student: dict, student_id: str, month_value: str) -> bool:
+    normalized_month = normalize_month_key(month_value)
+    if not normalized_month:
+        return False
+    fee = await build_fee_breakup(student, student_id, [normalized_month])
+    return float(fee.get("total_fee") or 0) > 0
 
 
 @app.post("/api/fees/calculate")
