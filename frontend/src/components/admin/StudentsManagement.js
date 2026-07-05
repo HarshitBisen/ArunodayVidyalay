@@ -27,8 +27,49 @@ const getAcademicYearOptions = (count = 3) => {
   return years;
 };
 
+const getCurrentAcademicYearMonthBounds = () => {
+	const currentAcademicYear = getCurrentAcademicYear();
+	const startYear = Number.parseInt(currentAcademicYear.split('-')[0], 10);
+	return {
+		min: `${startYear}-04`,
+		max: `${startYear + 1}-03`,
+	};
+};
+
+const isMonthInCurrentAcademicYear = (monthValue) => {
+	if (!monthValue) return false;
+	const { min, max } = getCurrentAcademicYearMonthBounds();
+	return monthValue >= min && monthValue <= max;
+};
+
+const getCurrentAcademicYearMonthOptions = () => {
+	const { min, max } = getCurrentAcademicYearMonthBounds();
+	const [minYear, minMonth] = min.split('-').map(Number);
+	const [maxYear, maxMonth] = max.split('-').map(Number);
+	const options = [];
+	let year = minYear;
+	let month = minMonth;
+	while (year < maxYear || (year === maxYear && month <= maxMonth)) {
+		const value = `${year}-${String(month).padStart(2, '0')}`;
+		const label = new Date(Date.UTC(year, month - 1, 1)).toLocaleString('en-US', {
+			month: 'long',
+			year: 'numeric',
+			timeZone: 'UTC',
+		});
+		options.push({ value, label });
+		month += 1;
+		if (month > 12) {
+			month = 1;
+			year += 1;
+		}
+	}
+	return options;
+};
+
 export default function StudentsManagement() {
   const academicYearOptions = getAcademicYearOptions(3);
+	const busFeeMonthBounds = getCurrentAcademicYearMonthBounds();
+	const busFeeMonthOptions = getCurrentAcademicYearMonthOptions();
 	const [students, setStudents] = useState([]);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedClasses, setSelectedClasses] = useState(['Nursery']);
@@ -43,6 +84,7 @@ export default function StudentsManagement() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showStudentPassword, setShowStudentPassword] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
+	const [busPaidMonths, setBusPaidMonths] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [formData, setFormData] = useState({
     roll_number: '',
@@ -58,6 +100,7 @@ export default function StudentsManagement() {
 	    bus_opted:'',
 	    pickup_location:'',
 	    distance_school:'',
+	    bus_fee_start_month: '',
 	    new_student: '',
 	    academic_year: getCurrentAcademicYear(),
 		  });
@@ -119,6 +162,15 @@ export default function StudentsManagement() {
     } else {
       payload.distance_school = parseFloat(payload.distance_school);
     }
+
+		if (!payload.bus_fee_start_month || payload.bus_fee_start_month.trim() === '') {
+			payload.bus_fee_start_month = null;
+		}
+
+		if (payload.bus_opted === 'yes' && payload.bus_fee_start_month && !isMonthInCurrentAcademicYear(payload.bus_fee_start_month)) {
+			toast.error(`Bus fee start month must be between ${busFeeMonthBounds.min} and ${busFeeMonthBounds.max}`);
+			return;
+		}
   
     try {
       await api.post('/admin/students', payload);
@@ -144,8 +196,21 @@ export default function StudentsManagement() {
 
   const handleEdit = async (e) => {
     e.preventDefault();
+		const payload = { ...formData };
+		if (!payload.distance_school || payload.distance_school === "") {
+			payload.distance_school = null;
+		} else {
+			payload.distance_school = parseFloat(payload.distance_school);
+		}
+		if (!payload.bus_fee_start_month || payload.bus_fee_start_month.trim() === '') {
+			payload.bus_fee_start_month = null;
+		}
+		if (payload.bus_opted === 'yes' && payload.bus_fee_start_month && !isMonthInCurrentAcademicYear(payload.bus_fee_start_month)) {
+			toast.error(`Bus fee start month must be between ${busFeeMonthBounds.min} and ${busFeeMonthBounds.max}`);
+			return;
+		}
     try {
-      await api.put(`/admin/students/${selectedStudent.id}`, formData);
+			await api.put(`/admin/students/${selectedStudent.id}`, payload);
       toast.success('Student updated successfully');
       setShowEditModal(false);
       resetForm();
@@ -181,9 +246,9 @@ export default function StudentsManagement() {
     }
   };
 
-  const openEditModal = (student) => {
+	const openEditModal = async (student) => {
     setSelectedStudent(student);
-    setFormData({
+		const initialFormData = {
       roll_number: student.roll_number,
       email: student.email,
       class_name: student.class_name,
@@ -195,8 +260,26 @@ export default function StudentsManagement() {
       bus_opted: student.bus_opted,
       pickup_location: student.pickup_location,
       distance_school: student.distance_school,
+			bus_fee_start_month: student.bus_fee_start_month || '',
       academic_year: student.academic_year || getCurrentAcademicYear(),
-    });
+    };
+    setFormData(initialFormData);
+
+    try {
+			const res = await api.get(`/admin/students/${student.id}/bus-paid-months`);
+			const paidMonths = Array.isArray(res.data?.months) ? res.data.months : [];
+			setBusPaidMonths(paidMonths);
+			if (initialFormData.bus_opted === 'yes' && initialFormData.bus_fee_start_month && paidMonths.includes(initialFormData.bus_fee_start_month)) {
+				const firstAvailable = busFeeMonthOptions.find((monthOption) => !paidMonths.includes(monthOption.value));
+				setFormData((prev) => ({
+					...prev,
+					bus_fee_start_month: firstAvailable ? firstAvailable.value : '',
+				}));
+			}
+		} catch (error) {
+			setBusPaidMonths([]);
+		}
+
     setShowEditModal(true);
   };
 
@@ -222,10 +305,12 @@ export default function StudentsManagement() {
       bus_opted:'',
       pickup_location:'',
       distance_school:'',
+			bus_fee_start_month: '',
       new_student: '',
       academic_year: getCurrentAcademicYear(),
     });
     setSelectedStudent(null);
+		setBusPaidMonths([]);
   };
 
   const openAddModal = () => {
@@ -512,6 +597,7 @@ export default function StudentsManagement() {
 		                            bus_opted: "no",
 		                            pickup_location: "",
 		                            distance_school: "",
+		                            bus_fee_start_month: "",
 		                          })
 		                        }
 		                        className="h-4 w-4 accent-sunny-blue"
@@ -550,6 +636,25 @@ export default function StudentsManagement() {
 		                        disabled={formData.bus_opted !== "yes"}
 		                        required={formData.bus_opted === "yes"}
 		                      />
+		                    </div>
+		                    <div>
+		                      <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+		                        Bus Fee Start Month
+		                      </label>
+		                      <select
+		                        className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+		                        value={formData.bus_fee_start_month}
+		                        onChange={(e) => setFormData({ ...formData, bus_fee_start_month: e.target.value })}
+		                        disabled={formData.bus_opted !== "yes"}
+		                        required={formData.bus_opted === "yes"}
+		                      >
+		                        <option value="">Select month</option>
+		                        {busFeeMonthOptions.map((monthOption) => (
+		                          <option key={monthOption.value} value={monthOption.value}>
+		                            {monthOption.label}
+		                          </option>
+		                        ))}
+		                      </select>
 		                    </div>
 		                  </div>
 		                </div>
@@ -916,6 +1021,7 @@ export default function StudentsManagement() {
 		                          bus_opted: "no",
 		                          pickup_location: "",
 		                          distance_school: "",
+		                          bus_fee_start_month: "",
 		                        })
 		                      }
 		                      className="h-4 w-4 accent-sunny-blue"
@@ -954,6 +1060,29 @@ export default function StudentsManagement() {
 		                      disabled={formData.bus_opted !== "yes"}
 		                      required={formData.bus_opted === "yes"}
 		                    />
+		                  </div>
+		                  <div>
+		                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+		                      Bus Fee Start Month
+		                    </label>
+		                    <select
+		                      className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+		                      value={formData.bus_fee_start_month}
+		                      onChange={(e) => setFormData({ ...formData, bus_fee_start_month: e.target.value })}
+		                      disabled={formData.bus_opted !== "yes"}
+		                      required={formData.bus_opted === "yes"}
+		                    >
+		                      <option value="">Select month</option>
+		                      {busFeeMonthOptions.map((monthOption) => (
+		                        <option
+		                          key={monthOption.value}
+		                          value={monthOption.value}
+		                          disabled={busPaidMonths.includes(monthOption.value)}
+		                        >
+		                          {monthOption.label}{busPaidMonths.includes(monthOption.value) ? ' (Bus Paid)' : ''}
+		                        </option>
+		                      ))}
+		                    </select>
 		                  </div>
 		                </div>
 		              </div>

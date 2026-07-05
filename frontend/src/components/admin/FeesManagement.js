@@ -544,6 +544,14 @@ export default function FeesManagement() {
             <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
               {!isPaidSummary && Array.isArray(feeDetails?.breakup?.meta?.due_months) && feeDetails.breakup.meta.due_months.length > 0 && (
                 <div className="mb-4 rounded-xl border border-sunny-border bg-sunny-cream/30 p-3 sm:p-4">
+                  {feeDetails?.breakup?.meta?.bus_fee_start_month && (
+                    <div className="mb-3 rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs font-outfit text-sky-900 sm:text-sm">
+                      Bus fee starts from {formatMonthLabel(feeDetails.breakup.meta.bus_fee_start_month)}
+                      {feeDetails?.breakup?.meta?.bus_fee_effective_from
+                        ? ` (next pending bus month: ${formatMonthLabel(feeDetails.breakup.meta.bus_fee_effective_from)})`
+                        : ''}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
                     <div>
                       <h3 className="font-fredoka text-base font-semibold text-sunny-navy sm:text-lg">Select pending months</h3>
