@@ -27,7 +27,7 @@ export default function FeePayment() {
   const [feeLoading, setFeeLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const paymentGatewayEnabled = false;
+  const paymentGatewayEnabled = true;
 
   const fetchProfile = useCallback(async () => {
     try {
