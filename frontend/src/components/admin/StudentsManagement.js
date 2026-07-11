@@ -70,6 +70,7 @@ export default function StudentsManagement() {
   const academicYearOptions = getAcademicYearOptions(3);
 	const busFeeMonthBounds = getCurrentAcademicYearMonthBounds();
 	const busFeeMonthOptions = getCurrentAcademicYearMonthOptions();
+	const busNumberOptions = ['1', '2', '3', '4', '5'];
 	const [students, setStudents] = useState([]);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedClasses, setSelectedClasses] = useState(['Nursery']);
@@ -99,6 +100,7 @@ export default function StudentsManagement() {
 	    parent_phone: '',
 	    bus_opted:'',
 	    pickup_location:'',
+	    bus_number:'',
 	    distance_school:'',
 	    bus_fee_start_month: '',
 	    new_student: '',
@@ -167,6 +169,10 @@ export default function StudentsManagement() {
 			payload.bus_fee_start_month = null;
 		}
 
+		if (!payload.bus_number || payload.bus_number.trim() === '') {
+			payload.bus_number = null;
+		}
+
 		if (payload.bus_opted === 'yes' && payload.bus_fee_start_month && !isMonthInCurrentAcademicYear(payload.bus_fee_start_month)) {
 			toast.error(`Bus fee start month must be between ${busFeeMonthBounds.min} and ${busFeeMonthBounds.max}`);
 			return;
@@ -204,6 +210,9 @@ export default function StudentsManagement() {
 		}
 		if (!payload.bus_fee_start_month || payload.bus_fee_start_month.trim() === '') {
 			payload.bus_fee_start_month = null;
+		}
+		if (!payload.bus_number || payload.bus_number.trim() === '') {
+			payload.bus_number = null;
 		}
 		if (payload.bus_opted === 'yes' && payload.bus_fee_start_month && !isMonthInCurrentAcademicYear(payload.bus_fee_start_month)) {
 			toast.error(`Bus fee start month must be between ${busFeeMonthBounds.min} and ${busFeeMonthBounds.max}`);
@@ -259,6 +268,7 @@ export default function StudentsManagement() {
       parent_phone: student.parent_phone,
       bus_opted: student.bus_opted,
       pickup_location: student.pickup_location,
+		  bus_number: student.bus_number || '',
       distance_school: student.distance_school,
 			bus_fee_start_month: student.bus_fee_start_month || '',
       academic_year: student.academic_year || getCurrentAcademicYear(),
@@ -304,6 +314,7 @@ export default function StudentsManagement() {
       parent_phone: '',
       bus_opted:'',
       pickup_location:'',
+		  bus_number:'',
       distance_school:'',
 			bus_fee_start_month: '',
       new_student: '',
@@ -596,6 +607,7 @@ export default function StudentsManagement() {
 		                            ...formData,
 		                            bus_opted: "no",
 		                            pickup_location: "",
+		                            bus_number: "",
 		                            distance_school: "",
 		                            bus_fee_start_month: "",
 		                          })
@@ -621,6 +633,24 @@ export default function StudentsManagement() {
 			                        required={formData.bus_opted === "yes"}
 			                      />
 		                    </div>
+			                    <div>
+			                      <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+			                        Bus Number
+			                      </label>
+			                      <select
+			                        className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+			                        value={formData.bus_number}
+			                        onChange={(e) => setFormData({ ...formData, bus_number: e.target.value })}
+			                        disabled={formData.bus_opted !== "yes"}
+			                      >
+			                        <option value="">Select bus number</option>
+			                        {busNumberOptions.map((busNumber) => (
+			                          <option key={busNumber} value={busNumber}>
+			                            {busNumber}
+			                          </option>
+			                        ))}
+			                      </select>
+			                    </div>
 		                    <div>
 		                      <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
 		                        Distance from School
@@ -1020,6 +1050,7 @@ export default function StudentsManagement() {
 		                          ...formData,
 		                          bus_opted: "no",
 		                          pickup_location: "",
+		                            bus_number: "",
 		                          distance_school: "",
 		                          bus_fee_start_month: "",
 		                        })
@@ -1045,6 +1076,25 @@ export default function StudentsManagement() {
 			                      required={formData.bus_opted === "yes"}
 			                    />
 		                  </div>
+			                  <div>
+			                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+			                      Bus Number
+			                    </label>
+			                    <select
+			                      className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+			                      value={formData.bus_number}
+			                      onChange={(e) => setFormData({ ...formData, bus_number: e.target.value })}
+			                      disabled={formData.bus_opted !== "yes"}
+			                      required={formData.bus_opted === "yes"}
+			                    >
+			                      <option value="">Select bus number</option>
+			                      {busNumberOptions.map((busNumber) => (
+			                        <option key={busNumber} value={busNumber}>
+			                          {busNumber}
+			                        </option>
+			                      ))}
+			                    </select>
+			                  </div>
 		                  <div>
 		                    <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
 		                      Distance from School

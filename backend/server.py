@@ -65,6 +65,7 @@ class Student(BaseModel):
     bus_opted: str  # yes, no
     new_student: str
     pickup_location: str 
+    bus_number: Optional[str] = None
     distance_school: Optional[float] = Field(default=None, ge=0)
     bus_fee_start_month: Optional[str] = None  # YYYY-MM
     fee_cycle: str = 'm'  # monthly
@@ -89,6 +90,7 @@ class StudentCreate(BaseModel):
     bus_opted: str  # yes, no
     new_student: str
     pickup_location: str 
+    bus_number: Optional[str] = None
     distance_school: Optional[float] = Field(default=None, ge=0)
     bus_fee_start_month: Optional[str] = None  # YYYY-MM
     academic_year: str
@@ -97,10 +99,15 @@ class StudentCreate(BaseModel):
     def validate_bus_fields(self):
         bus_opted = str(self.bus_opted or "").strip().lower()
         pickup = str(self.pickup_location or "").strip()
+        bus_number = str(self.bus_number or "").strip()
         bus_fee_start_month = str(self.bus_fee_start_month or "").strip()
         if bus_opted == "yes":
             if not pickup:
                 raise ValueError("pickup_location is required when bus_opted is yes")
+            if not bus_number:
+                raise ValueError("bus_number is required when bus_opted is yes")
+            if bus_number not in {"1", "2", "3", "4", "5"}:
+                raise ValueError("bus_number must be one of 1, 2, 3, 4, 5")
             if self.distance_school is None:
                 raise ValueError("distance_school is required when bus_opted is yes")
             if not bus_fee_start_month:
@@ -127,6 +134,7 @@ class StudentUpdate(BaseModel):
     address: Optional[str] = None
     bus_opted: Optional[str] = None
     pickup_location: Optional[str] = None
+    bus_number: Optional[str] = None
     distance_school: Optional[float] = Field(default=None, ge=0)
     bus_fee_start_month: Optional[str] = None
     academic_year: Optional[str] = None
@@ -148,6 +156,7 @@ class StudentResponse(BaseModel):
     bus_opted: Optional[str] = None  # yes, no
     new_student: Optional[str] = None
     pickup_location: Optional[str] = None
+    bus_number: Optional[str] = None
     distance_school: Optional[float] = None
     bus_fee_start_month: Optional[str] = None
     fee_status: Optional[str] = None
@@ -719,6 +728,7 @@ async def create_student(student_data: StudentCreate, current_user: dict = Depen
         bus_opted=student_data.bus_opted,
         new_student=student_data.new_student,
         pickup_location=student_data.pickup_location,
+        bus_number=(str(student_data.bus_number).strip() if student_data.bus_number is not None and str(student_data.bus_number).strip() else None),
         distance_school=student_data.distance_school,
         bus_fee_start_month=normalize_month_key(student_data.bus_fee_start_month),
         academic_year=(student_data.academic_year or academic_year_for(datetime.now(timezone.utc))),
@@ -738,6 +748,9 @@ async def update_student(student_id: str, student_data: StudentUpdate, current_u
         raise HTTPException(status_code=404, detail="Student not found")
     
     update_data = student_data.model_dump(exclude_unset=True)
+    if "bus_number" in update_data:
+        raw_bus_number = update_data.get("bus_number")
+        update_data["bus_number"] = str(raw_bus_number).strip() if raw_bus_number is not None and str(raw_bus_number).strip() else None
     if "academic_year" in update_data:
         if not update_data["academic_year"] or not str(update_data["academic_year"]).strip():
             raise HTTPException(status_code=400, detail="Academic year is required")
@@ -761,6 +774,18 @@ async def update_student(student_id: str, student_data: StudentUpdate, current_u
         pickup = str(merged.get("pickup_location") or "").strip()
         if not pickup:
             raise HTTPException(status_code=400, detail="Pickup location is required when bus service is opted")
+        bus_number = str(merged.get("bus_number") or "").strip()
+        original_bus_opted = str(student.get("bus_opted") or "").strip().lower()
+        legacy_bus_number_missing = original_bus_opted == "yes" and not str(student.get("bus_number") or "").strip()
+        bus_status_changed = "bus_opted" in update_data and str(update_data.get("bus_opted") or "").strip().lower() != original_bus_opted
+        bus_number_explicitly_updated = "bus_number" in update_data
+        if not bus_number and (bus_status_changed or bus_number_explicitly_updated or not legacy_bus_number_missing):
+            raise HTTPException(status_code=400, detail="Bus number is required when bus service is opted")
+        if bus_number not in {"1", "2", "3", "4", "5"}:
+            if bus_number:
+                raise HTTPException(status_code=400, detail="Bus number must be one of 1, 2, 3, 4, 5")
+        if bus_number:
+            update_data["bus_number"] = bus_number
         if merged.get("distance_school") is None:
             raise HTTPException(status_code=400, detail="Distance from school is required when bus service is opted")
         bus_fee_start_month = normalize_month_key(merged.get("bus_fee_start_month"))
@@ -768,6 +793,7 @@ async def update_student(student_id: str, student_data: StudentUpdate, current_u
             raise HTTPException(status_code=400, detail="Bus fee start month is required when bus service is opted")
         update_data["bus_fee_start_month"] = bus_fee_start_month
     else:
+        update_data["bus_number"] = None
         update_data["bus_fee_start_month"] = None
     if update_data:
         update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
