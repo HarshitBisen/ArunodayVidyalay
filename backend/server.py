@@ -68,6 +68,7 @@ class Student(BaseModel):
     bus_number: Optional[str] = None
     distance_school: Optional[float] = Field(default=None, ge=0)
     bus_fee_start_month: Optional[str] = None  # YYYY-MM
+    admission_month: Optional[str] = None  # YYYY-MM
     fee_cycle: str = 'm'  # monthly
     academic_year: str
     fee_status: str = "pending"  # pending, paid
@@ -93,6 +94,7 @@ class StudentCreate(BaseModel):
     bus_number: Optional[str] = None
     distance_school: Optional[float] = Field(default=None, ge=0)
     bus_fee_start_month: Optional[str] = None  # YYYY-MM
+    admission_month: str  # YYYY-MM
     academic_year: str
 
     @model_validator(mode="after")
@@ -121,6 +123,12 @@ class StudentCreate(BaseModel):
             normalized_bus_month = f"{int(year_text):04d}-{month:02d}"
             if not is_in_current_academic_year(normalized_bus_month):
                 raise ValueError("bus_fee_start_month must be in current academic year (April to March)")
+
+        normalized_admission_month = normalize_month_key(self.admission_month)
+        if not normalized_admission_month:
+            raise ValueError("admission_month must be in YYYY-MM format")
+        if not is_in_current_academic_year_to_current_month(normalized_admission_month):
+            raise ValueError("admission_month must be between current academic year April and current month")
         return self
 
 class StudentUpdate(BaseModel):
@@ -137,6 +145,7 @@ class StudentUpdate(BaseModel):
     bus_number: Optional[str] = None
     distance_school: Optional[float] = Field(default=None, ge=0)
     bus_fee_start_month: Optional[str] = None
+    admission_month: Optional[str] = None
     academic_year: Optional[str] = None
 
 class StudentResponse(BaseModel):
@@ -159,6 +168,7 @@ class StudentResponse(BaseModel):
     bus_number: Optional[str] = None
     distance_school: Optional[float] = None
     bus_fee_start_month: Optional[str] = None
+    admission_month: Optional[str] = None
     fee_status: Optional[str] = None
     fee_amount: Optional[float] = None
     academic_year: Optional[str] = None
@@ -731,6 +741,7 @@ async def create_student(student_data: StudentCreate, current_user: dict = Depen
         bus_number=(str(student_data.bus_number).strip() if student_data.bus_number is not None and str(student_data.bus_number).strip() else None),
         distance_school=student_data.distance_school,
         bus_fee_start_month=normalize_month_key(student_data.bus_fee_start_month),
+        admission_month=normalize_month_key(student_data.admission_month),
         academic_year=(student_data.academic_year or academic_year_for(datetime.now(timezone.utc))),
     )
     
@@ -766,6 +777,18 @@ async def update_student(student_id: str, student_data: StudentUpdate, current_u
             if not is_in_current_academic_year(normalized_bus_month):
                 raise HTTPException(status_code=400, detail="Bus fee start month must be in current academic year (April to March)")
             update_data["bus_fee_start_month"] = normalized_bus_month
+
+    if "admission_month" in update_data:
+        raw_admission_month = update_data.get("admission_month")
+        if raw_admission_month in (None, ""):
+            update_data["admission_month"] = None
+        else:
+            normalized_admission_month = normalize_month_key(raw_admission_month)
+            if not normalized_admission_month:
+                raise HTTPException(status_code=400, detail="Admission month must be in YYYY-MM format")
+            if not is_in_current_academic_year_to_current_month(normalized_admission_month):
+                raise HTTPException(status_code=400, detail="Admission month must be between current academic year April and current month")
+            update_data["admission_month"] = normalized_admission_month
 
     # If bus service is opted (either already or being updated to yes), pickup location and distance are mandatory.
     merged = {**student, **update_data}
@@ -1390,6 +1413,14 @@ def is_in_current_academic_year(month_value: str) -> bool:
     start, end = current_academic_year_bounds()
     return start <= month_dt <= end
 
+def is_in_current_academic_year_to_current_month(month_value: str) -> bool:
+    month_dt = month_key_to_datetime(month_value)
+    if not month_dt:
+        return False
+    start, _ = current_academic_year_bounds()
+    now_month = month_start(datetime.now(timezone.utc))
+    return start <= month_dt <= now_month
+
 def month_start(dt: datetime) -> datetime:
     return datetime(dt.year, dt.month, 1, tzinfo=dt.tzinfo or timezone.utc)
 
@@ -1664,6 +1695,11 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
     now = datetime.now(timezone.utc)
     current_month = month_start(now)
     join_month = month_start(created_at)
+
+    # Existing records without admission_month continue using created_at month.
+    admission_month = month_key_to_datetime(str(student.get("admission_month") or ""))
+    if admission_month is not None:
+        join_month = admission_month
 
     academic_start = academic_year_start(student.get("academic_year"))
     base_due_month = academic_start or join_month

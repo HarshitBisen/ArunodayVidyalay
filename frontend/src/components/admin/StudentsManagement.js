@@ -66,10 +66,52 @@ const getCurrentAcademicYearMonthOptions = () => {
 	return options;
 };
 
+const getAdmissionMonthBounds = () => {
+	const currentAcademicYear = getCurrentAcademicYear();
+	const startYear = Number.parseInt(currentAcademicYear.split('-')[0], 10);
+	const now = new Date();
+	return {
+		min: `${startYear}-04`,
+		max: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
+	};
+};
+
+const isMonthInAdmissionRange = (monthValue) => {
+	if (!monthValue) return false;
+	const { min, max } = getAdmissionMonthBounds();
+	return monthValue >= min && monthValue <= max;
+};
+
+const getAdmissionMonthOptions = () => {
+	const { min, max } = getAdmissionMonthBounds();
+	const [minYear, minMonth] = min.split('-').map(Number);
+	const [maxYear, maxMonth] = max.split('-').map(Number);
+	const options = [];
+	let year = minYear;
+	let month = minMonth;
+	while (year < maxYear || (year === maxYear && month <= maxMonth)) {
+		const value = `${year}-${String(month).padStart(2, '0')}`;
+		const label = new Date(Date.UTC(year, month - 1, 1)).toLocaleString('en-US', {
+			month: 'long',
+			year: 'numeric',
+			timeZone: 'UTC',
+		});
+		options.push({ value, label });
+		month += 1;
+		if (month > 12) {
+			month = 1;
+			year += 1;
+		}
+	}
+	return options;
+};
+
 export default function StudentsManagement() {
   const academicYearOptions = getAcademicYearOptions(3);
 	const busFeeMonthBounds = getCurrentAcademicYearMonthBounds();
 	const busFeeMonthOptions = getCurrentAcademicYearMonthOptions();
+	const admissionMonthBounds = getAdmissionMonthBounds();
+	const admissionMonthOptions = getAdmissionMonthOptions();
 	const busNumberOptions = ['1', '2', '3', '4', '5'];
 	const [students, setStudents] = useState([]);
 	const [searchQuery, setSearchQuery] = useState('');
@@ -103,6 +145,7 @@ export default function StudentsManagement() {
 	    bus_number:'',
 	    distance_school:'',
 	    bus_fee_start_month: '',
+	    admission_month: '',
 	    new_student: '',
 	    academic_year: getCurrentAcademicYear(),
 		  });
@@ -171,6 +214,16 @@ export default function StudentsManagement() {
 
 		if (!payload.bus_number || payload.bus_number.trim() === '') {
 			payload.bus_number = null;
+		}
+
+		if (!payload.admission_month || payload.admission_month.trim() === '') {
+			toast.error('Admission month is required');
+			return;
+		}
+
+		if (!isMonthInAdmissionRange(payload.admission_month)) {
+			toast.error(`Admission month must be between ${admissionMonthBounds.min} and ${admissionMonthBounds.max}`);
+			return;
 		}
 
 		if (payload.bus_opted === 'yes' && payload.bus_fee_start_month && !isMonthInCurrentAcademicYear(payload.bus_fee_start_month)) {
@@ -271,6 +324,7 @@ export default function StudentsManagement() {
 		  bus_number: student.bus_number || '',
       distance_school: student.distance_school,
 			bus_fee_start_month: student.bus_fee_start_month || '',
+			admission_month: student.admission_month || '',
       academic_year: student.academic_year || getCurrentAcademicYear(),
     };
     setFormData(initialFormData);
@@ -317,6 +371,7 @@ export default function StudentsManagement() {
 		  bus_number:'',
       distance_school:'',
 			bus_fee_start_month: '',
+			admission_month: '',
       new_student: '',
       academic_year: getCurrentAcademicYear(),
     });
@@ -481,19 +536,35 @@ export default function StudentsManagement() {
 	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
 	                    Academic Year *
 	                  </label>
-		                  <select
-		                    className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
-		                    value={formData.academic_year}
-		                    onChange={(e) => setFormData({ ...formData, academic_year: e.target.value })}
-		                    required
-		                    data-testid="add-academic-year"
-		                  >
-	                    {academicYearOptions.map((yr) => (
-	                      <option key={yr} value={yr}>
-	                        {yr}
+	                  <Input
+	                    className="w-full bg-gray-100 border-sunny-border shadow-sm"
+	                    value={getCurrentAcademicYear()}
+	                    disabled
+	                    readOnly
+	                    data-testid="add-academic-year"
+	                  />
+	                </div>
+	                <div>
+	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
+	                    Admission Month *
+	                  </label>
+	                  <select
+	                    className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+	                    value={formData.admission_month}
+	                    onChange={(e) => setFormData({ ...formData, admission_month: e.target.value })}
+	                    required
+	                    data-testid="add-admission-month"
+	                  >
+	                    <option value="">Select admission month</option>
+	                    {admissionMonthOptions.map((monthOption) => (
+	                      <option key={monthOption.value} value={monthOption.value}>
+	                        {monthOption.label}
 	                      </option>
 	                    ))}
 	                  </select>
+	                  <p className="mt-1 font-outfit text-xs text-gray-500">
+	                    Allowed range: {admissionMonthBounds.min} to {admissionMonthBounds.max}
+	                  </p>
 	                </div>
 	                <div>
 	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Section</label>

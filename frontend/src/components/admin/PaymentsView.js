@@ -113,6 +113,38 @@ export default function PaymentsView() {
       .replace(/_/g, ' ')
       .replace(/\b\w/g, (m) => m.toUpperCase());
 
+  const formatMonthLabel = (monthValue) => {
+    const match = String(monthValue || '').match(/^(\d{4})-(\d{1,2})$/);
+    if (!match) return monthValue || 'N/A';
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+      return monthValue || 'N/A';
+    }
+    return new Date(Date.UTC(year, month - 1, 1)).toLocaleString('en-US', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+  };
+
+  const formatPaidFor = (payment) => {
+    const selectedMonths = Array.isArray(payment?.selected_months) ? payment.selected_months.filter(Boolean) : [];
+    if (selectedMonths.length > 0) {
+      return selectedMonths.map((month) => formatMonthLabel(month)).join(', ');
+    }
+
+    if (payment?.paid_for_month) {
+      return formatMonthLabel(payment.paid_for_month);
+    }
+
+    if (payment?.paid_at) {
+      return formatMonthLabel(String(payment.paid_at).slice(0, 7));
+    }
+
+    return 'N/A';
+  };
+
   const sumItems = selectedPayment?.breakup?.sum || null;
   const subsItems = selectedPayment?.breakup?.subs || null;
   const breakupTotal = selectedPayment?.breakup?.total;
@@ -391,7 +423,7 @@ export default function PaymentsView() {
                   </div>
                   <div className="text-gray-700">
                     <span className="font-semibold text-gray-900">Paid For:</span>{' '}
-                    {selectedPayment.paid_for_month || (selectedPayment.paid_at ? String(selectedPayment.paid_at).slice(0, 7) : 'N/A')}
+                    {formatPaidFor(selectedPayment)}
                   </div>
                   <div className="text-gray-700">
                     <span className="font-semibold text-gray-900">Paid At:</span> {new Date(selectedPayment.paid_at).toLocaleString()}
