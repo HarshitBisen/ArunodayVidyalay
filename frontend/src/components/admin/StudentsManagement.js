@@ -112,7 +112,7 @@ export default function StudentsManagement() {
 	const busFeeMonthOptions = getCurrentAcademicYearMonthOptions();
 	const admissionMonthBounds = getAdmissionMonthBounds();
 	const admissionMonthOptions = getAdmissionMonthOptions();
-	const busNumberOptions = ['1', '2', '3', '4', '5'];
+	const busNumberOptions = ['1', '2', '3', '4', '5', '6', '7'];
 	const [students, setStudents] = useState([]);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [selectedClasses, setSelectedClasses] = useState(['Nursery']);
