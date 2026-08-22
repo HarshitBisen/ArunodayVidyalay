@@ -217,13 +217,18 @@ export default function StudentsManagement() {
 		}
 
 		if (!payload.admission_month || payload.admission_month.trim() === '') {
-			toast.error('Admission month is required');
+			if (payload.new_student === 'yes') {
+				toast.error('Admission month is required for new students');
+				return;
+			}
+			payload.admission_month = null;
+		} else if (!isMonthInAdmissionRange(payload.admission_month)) {
+			toast.error(`Admission month must be between ${admissionMonthBounds.min} and ${admissionMonthBounds.max}`);
 			return;
 		}
 
-		if (!isMonthInAdmissionRange(payload.admission_month)) {
-			toast.error(`Admission month must be between ${admissionMonthBounds.min} and ${admissionMonthBounds.max}`);
-			return;
+		if (payload.new_student !== 'yes') {
+			payload.admission_month = null;
 		}
 
 		if (payload.bus_opted === 'yes' && payload.bus_fee_start_month && !isMonthInCurrentAcademicYear(payload.bus_fee_start_month)) {
@@ -546,25 +551,33 @@ export default function StudentsManagement() {
 	                </div>
 	                <div>
 	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">
-	                    Admission Month *
+	                    Admission Month {formData.new_student === 'yes' ? '*' : ''}
 	                  </label>
-	                  <select
-	                    className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
-	                    value={formData.admission_month}
-	                    onChange={(e) => setFormData({ ...formData, admission_month: e.target.value })}
-	                    required
-	                    data-testid="add-admission-month"
-	                  >
-	                    <option value="">Select admission month</option>
-	                    {admissionMonthOptions.map((monthOption) => (
-	                      <option key={monthOption.value} value={monthOption.value}>
-	                        {monthOption.label}
-	                      </option>
-	                    ))}
-	                  </select>
-	                  <p className="mt-1 font-outfit text-xs text-gray-500">
-	                    Allowed range: {admissionMonthBounds.min} to {admissionMonthBounds.max}
-	                  </p>
+	                  {formData.new_student === 'no' ? (
+	                    <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-outfit text-gray-500">
+	                      Not applicable for existing students
+	                    </p>
+	                  ) : (
+	                    <>
+	                      <select
+	                        className="w-full rounded-md border border-sunny-border bg-white px-3 py-2 font-outfit focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+	                        value={formData.admission_month}
+	                        onChange={(e) => setFormData({ ...formData, admission_month: e.target.value })}
+	                        required={formData.new_student === 'yes'}
+	                        data-testid="add-admission-month"
+	                      >
+	                        <option value="">Select admission month</option>
+	                        {admissionMonthOptions.map((monthOption) => (
+	                          <option key={monthOption.value} value={monthOption.value}>
+	                            {monthOption.label}
+	                          </option>
+	                        ))}
+	                      </select>
+	                      <p className="mt-1 font-outfit text-xs text-gray-500">
+	                        Allowed range: {admissionMonthBounds.min} to {admissionMonthBounds.max}
+	                      </p>
+	                    </>
+	                  )}
 	                </div>
 	                <div>
 	                  <label className="block font-outfit font-medium text-gray-700 mb-1 text-sm">Section</label>
@@ -637,7 +650,7 @@ export default function StudentsManagement() {
 	                        name="new_student"
 	                        value="no"
 	                        checked={formData.new_student === "no"}
-	                        onChange={() => setFormData({ ...formData, new_student: "no" })}
+	                        onChange={() => setFormData({ ...formData, new_student: "no", admission_month: '' })}
 	                        className="h-4 w-4 accent-sunny-blue"
 	                      />
 	                      No
