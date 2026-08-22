@@ -995,9 +995,14 @@ async def delete_student_concession(student_id: str, current_user: dict = Depend
     return ConcessionStatusResponse(applied=False)
 
 @api_router.get("/admin/payments", response_model=List[dict])
-async def get_all_payments(class_name: Optional[str] = None, month: Optional[str] = None, current_user: dict = Depends(get_admin_user)):
+async def get_all_payments(class_name: Optional[str] = None, month: Optional[str] = None, include_advance: bool = False, current_user: dict = Depends(get_admin_user)):
     # Build query parts
     query_parts = []
+
+    # Advance payments filter: payments that cover at least one future month
+    if include_advance:
+        current_month_str = month_key(datetime.now(timezone.utc))
+        query_parts.append({"selected_months": {"$elemMatch": {"$gt": current_month_str}}})
 
     # Month filter
     if month:
@@ -1062,8 +1067,8 @@ async def mark_student_paid_offline(student_id: str, request: OfflinePaymentRequ
     if not requested_months and request.paid_for_month:
         requested_months = normalize_month_keys([request.paid_for_month])
 
-    # Build fee breakup and amount
-    fee = await build_fee_breakup(student, student_id, requested_months or None)
+    # Build fee breakup and amount (future months allowed for admin advance payment)
+    fee = await build_fee_breakup(student, student_id, requested_months or None, allow_future_months=True)
     billed_months = normalize_month_keys(fee.get("breakup", {}).get("meta", {}).get("selected_months"))
     if not billed_months:
         billed_months = normalize_month_keys(fee.get("breakup", {}).get("meta", {}).get("due_months"))
@@ -1072,7 +1077,7 @@ async def mark_student_paid_offline(student_id: str, request: OfflinePaymentRequ
 
     # Prevent duplicate payments only when a selected month has no remaining dues.
     for month_value in billed_months:
-        if not await month_has_pending_fee(student, student_id, month_value):
+        if not await month_has_pending_fee(student, student_id, month_value, allow_future_months=True):
             raise HTTPException(status_code=400, detail="Fee already paid for one of the selected months")
 
     payable = float(fee.get("total_fee") or 0)
@@ -1570,7 +1575,7 @@ async def build_paid_fee_summary(student: dict, student_id: str) -> dict:
 
     payments = await db.payments.find(
         {"student_id": student_id},
-        {"_id": 0, "paid_for_month": 1, "paid_at": 1, "status": 1, "amount": 1, "breakup": 1},
+        {"_id": 0, "paid_for_month": 1, "selected_months": 1, "paid_at": 1, "status": 1, "amount": 1, "breakup": 1},
     ).to_list(1000)
 
     sum_items = {
@@ -1671,7 +1676,7 @@ def calculate_late_fee(unpaid_due_months: List[datetime], now: datetime) -> floa
 
     return round(late_fee, 2)
 
-async def build_fee_breakup(student: dict, student_id: str, selected_months: Optional[List[str]] = None) -> dict:
+async def build_fee_breakup(student: dict, student_id: str, selected_months: Optional[List[str]] = None, allow_future_months: bool = False) -> dict:
     admission = 0
     caution = 0
 
@@ -1688,12 +1693,21 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
 
     payments = await db.payments.find(
         {"student_id": student_id},
-        {"_id": 0, "paid_for_month": 1, "paid_at": 1, "status": 1, "breakup": 1},
+        {"_id": 0, "paid_for_month": 1, "selected_months": 1, "paid_at": 1, "status": 1, "breakup": 1},
     ).to_list(1000)
 
     total = 0.0
     now = datetime.now(timezone.utc)
     current_month = month_start(now)
+
+    # Extend the fee timeline to cover explicitly requested future months (admin advance payment).
+    upper_bound = current_month
+    if allow_future_months and selected_months:
+        for sm in selected_months:
+            sm_dt = month_key_to_datetime(sm)
+            if sm_dt is not None and sm_dt > current_month:
+                upper_bound = max(upper_bound, sm_dt)
+
     join_month = month_start(created_at)
 
     # Existing records without admission_month continue using created_at month.
@@ -1726,7 +1740,7 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
 
     due_timeline = []
     cursor_month = base_due_month
-    while cursor_month <= current_month:
+    while cursor_month <= upper_bound:
         due_timeline.append(cursor_month)
         cursor_month = add_months(cursor_month, 1)
 
@@ -1748,24 +1762,32 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
         # Legacy docs without breakup are treated as full-month payments.
         if not breakup_sum:
             for payment_month in payment_months:
-                if payment_month < base_due_month or payment_month > current_month:
+                if payment_month < base_due_month or payment_month > upper_bound:
                     continue
                 paid_months.add(payment_month)
             continue
 
+        # If a payment carries an explicit list of covered months (e.g. admin advance/multi-month
+        # offline payments), trust those months directly and skip the sequential tuition allocation.
+        # The monthly_components block below will add the explicit months to paid_months.
+        # Sequential allocation is only needed for legacy / single-month online payments that record
+        # multiple months of tuition in one transaction without an explicit month list.
+        has_explicit_months = bool(normalize_month_keys(payment.get("selected_months") or []))
+
         # If a payment contains tuition for multiple months in one transaction,
         # map those months to the oldest unpaid due months up to the latest covered month.
-        tuition_paid = float(breakup_sum.get("tuition_fee", 0) or 0)
-        latest_payment_month = payment_months[-1]
-        if tuition > 0 and tuition_paid > 0:
-            tuition_months_paid = max(1, int(round(tuition_paid / float(tuition))))
-            allocatable_months = [
-                month
-                for month in due_timeline
-                if month <= latest_payment_month and month not in paid_months
-            ]
-            for month in allocatable_months[:tuition_months_paid]:
-                paid_months.add(month)
+        if not has_explicit_months:
+            tuition_paid = float(breakup_sum.get("tuition_fee", 0) or 0)
+            latest_payment_month = payment_months[-1]
+            if tuition > 0 and tuition_paid > 0:
+                tuition_months_paid = max(1, int(round(tuition_paid / float(tuition))))
+                allocatable_months = [
+                    month
+                    for month in due_timeline
+                    if month <= latest_payment_month and month not in paid_months
+                ]
+                for month in allocatable_months[:tuition_months_paid]:
+                    paid_months.add(month)
 
         monthly_components = (
             float(breakup_sum.get("tuition_fee", 0) or 0)
@@ -1777,13 +1799,13 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
         # Admission/annual-only partial payments should not mark a month as fully settled.
         if monthly_components > 0:
             for payment_month in payment_months:
-                if payment_month < base_due_month or payment_month > current_month:
+                if payment_month < base_due_month or payment_month > upper_bound:
                     continue
                 paid_months.add(payment_month)
 
     tuition_due_month_list = []
     cursor_month = base_due_month
-    while cursor_month <= current_month:
+    while cursor_month <= upper_bound:
         if cursor_month not in paid_months:
             tuition_due_month_list.append(cursor_month)
         cursor_month = add_months(cursor_month, 1)
@@ -1855,25 +1877,25 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
             breakup_sum = payment_breakup_sum(payment)
             if not breakup_sum:
                 for payment_month in payment_months:
-                    if base_due_month <= payment_month <= current_month:
+                    if base_due_month <= payment_month <= upper_bound:
                         bus_paid_months.add(payment_month)
                 continue
 
             if float(breakup_sum.get("bus_fee", 0) or 0) <= 0:
                 continue
             for payment_month in payment_months:
-                if base_due_month <= payment_month <= current_month:
+                if base_due_month <= payment_month <= upper_bound:
                     bus_paid_months.add(payment_month)
 
         bus_fee_effective_from = configured_bus_start
-        while bus_fee_effective_from <= current_month:
+        while bus_fee_effective_from <= upper_bound:
             if bus_fee_effective_from in bus_paid_months:
                 bus_fee_effective_from = add_months(bus_fee_effective_from, 1)
                 continue
             break
 
         cursor_month = max(base_due_month, configured_bus_start)
-        while cursor_month <= current_month:
+        while cursor_month <= upper_bound:
             if cursor_month not in bus_paid_months:
                 bus_due_month_list.append(cursor_month)
             cursor_month = add_months(cursor_month, 1)
@@ -1972,11 +1994,11 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
         },
     }
 
-async def month_has_pending_fee(student: dict, student_id: str, month_value: str) -> bool:
+async def month_has_pending_fee(student: dict, student_id: str, month_value: str, allow_future_months: bool = False) -> bool:
     normalized_month = normalize_month_key(month_value)
     if not normalized_month:
         return False
-    fee = await build_fee_breakup(student, student_id, [normalized_month])
+    fee = await build_fee_breakup(student, student_id, [normalized_month], allow_future_months=allow_future_months)
     return float(fee.get("total_fee") or 0) > 0
 
 
@@ -2000,7 +2022,8 @@ async def calculate_fee(student: dict):
         {"_id": 0},
     )
 
-    fee_breakup = await build_fee_breakup(student_doc, student_id, student.get("selected_months"))
+    allow_future = parse_bool(student.get("allow_future_months"))
+    fee_breakup = await build_fee_breakup(student_doc, student_id, student.get("selected_months"), allow_future_months=allow_future)
     if include_paid_summary:
         fee_breakup["paid_summary"] = await build_paid_fee_summary(student_doc, student_id)
 

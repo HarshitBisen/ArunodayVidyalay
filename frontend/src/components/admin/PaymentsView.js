@@ -35,6 +35,7 @@ export default function PaymentsView() {
   const classDropdownRef = useRef(null);
   const [showBreakupModal, setShowBreakupModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [showAdvance, setShowAdvance] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
   const fetchData = useCallback(async () => {
@@ -51,6 +52,10 @@ export default function PaymentsView() {
 
       if (selectedMonths.length > 0) {
         params.month = selectedMonths.join(',');
+      }
+
+      if (showAdvance) {
+        params.include_advance = 'true';
       }
 
       const [paymentsRes, studentsRes] = await Promise.all([
@@ -71,7 +76,7 @@ export default function PaymentsView() {
     } finally {
       setLoading(false);
     }
-  }, [selectedClasses, selectedMonths]);
+  }, [selectedClasses, selectedMonths, showAdvance]);
 
   const addMonthToFilter = (value) => {
     if (!value) return;
@@ -86,7 +91,7 @@ export default function PaymentsView() {
     fetchData();
   }, [fetchData]);
 
-  useEffect(() => { setCurrentPage(1); }, [selectedMonths, selectedClasses]);
+  useEffect(() => { setCurrentPage(1); }, [selectedMonths, selectedClasses, showAdvance]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -103,6 +108,11 @@ export default function PaymentsView() {
   }, []);
 
   
+
+  const isAdvancePayment = (payment) => {
+    const cm = new Date().toISOString().slice(0, 7);
+    return Array.isArray(payment?.selected_months) && payment.selected_months.some((m) => m > cm);
+  };
 
   if (loading) {
     return <Loader message="Loading payments" />;
@@ -313,7 +323,24 @@ export default function PaymentsView() {
         </div>
       </div>
 
-      {/* Payments Table */}
+      <div className="flex items-center gap-3 mb-4">
+        <button
+          type="button"
+          onClick={() => setShowAdvance((v) => !v)}
+          className={`inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-outfit font-semibold transition ${
+            showAdvance
+              ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+              : 'border-blue-200 bg-white text-blue-700 hover:border-blue-500'
+          }`}
+        >
+          {showAdvance ? '✓ ' : ''}Advance Payments
+        </button>
+        {showAdvance && (
+          <span className="text-xs font-outfit text-blue-600">
+            Showing payments that include future months
+          </span>
+        )}
+      </div>
       <div className="bg-white rounded-xl shadow-sm overflow-hidden" data-testid="payments-table">
         {payments.length === 0 ? (
           <div className="p-8 text-center">
@@ -328,6 +355,7 @@ export default function PaymentsView() {
                   <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Transaction ID</th>
                   <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Student</th>
                   <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Roll No</th>
+                  <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Paid For</th>
                   <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Amount</th>
                   <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Payment Method</th>
                   <th className="text-left font-outfit font-semibold text-gray-700 py-3 px-4">Date</th>
@@ -343,6 +371,14 @@ export default function PaymentsView() {
                       <td className="font-outfit text-gray-900 py-3 px-4">{payment.transaction_id}</td>
                       <td className="font-outfit text-gray-900 py-3 px-4">{student.name || 'N/A'}</td>
                       <td className="font-outfit text-gray-600 py-3 px-4">{student.roll_number || 'N/A'}</td>
+                      <td className="py-3 px-4">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="font-outfit text-gray-700 text-sm">{formatPaidFor(payment)}</span>
+                          {isAdvancePayment(payment) && (
+                            <span className="inline-block rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-outfit font-semibold text-blue-700">Advance</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="font-outfit text-gray-900 font-semibold py-3 px-4">
                         ₹{Number(payment.amount || 0).toLocaleString()}
                       </td>

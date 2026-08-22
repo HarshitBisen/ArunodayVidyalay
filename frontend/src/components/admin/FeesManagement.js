@@ -39,6 +39,8 @@ export default function FeesManagement() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [offlineReceipt, setOfflineReceipt] = useState('');
   const [selectedFeeMonths, setSelectedFeeMonths] = useState([]);
+  const [selectedFutureMonths, setSelectedFutureMonths] = useState([]);
+  const [initialPendingFee, setInitialPendingFee] = useState(null);
   const [offlineNote, setOfflineNote] = useState('');
   const [processingOffline, setProcessingOffline] = useState(false);
   const [showConcessionModal, setShowConcessionModal] = useState(false);
@@ -51,6 +53,21 @@ export default function FeesManagement() {
   const [concessionLocked, setConcessionLocked] = useState(false);
   const [concessionAppliedBy, setConcessionAppliedBy] = useState(null);
   const [concessionAppliedAt, setConcessionAppliedAt] = useState(null);
+
+  const currentMonthKey = React.useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+
+  const nextSixMonths = React.useMemo(() => {
+    const result = [];
+    const now = new Date();
+    for (let i = 1; i <= 6; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      result.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return result;
+  }, []);
 
   const fetchStudents = useCallback(async () => {
     setLoading(true);
@@ -70,13 +87,16 @@ export default function FeesManagement() {
     }
   }, [selectedClasses]);
 
-  const fetchFeeDetails = useCallback(async (student, months = []) => {
+  const fetchFeeDetails = useCallback(async (student, months = [], allowFutureMonths = false) => {
     const payload = {
       id: student.id,
       include_paid_summary: true,
     };
     if (months.length > 0) {
       payload.selected_months = months;
+    }
+    if (allowFutureMonths) {
+      payload.allow_future_months = true;
     }
     const res = await api.post('/fees/calculate', payload);
     setFeeDetails(res.data);
@@ -93,7 +113,10 @@ export default function FeesManagement() {
       setOfflineReceipt('');
       setOfflineNote('');
       setSelectedFeeMonths([]);
-      await fetchFeeDetails(student, []);
+      setSelectedFutureMonths([]);
+      setInitialPendingFee(null);
+      const data = await fetchFeeDetails(student, []);
+      setInitialPendingFee(Number(data?.total_fee ?? 0));
       setShowFeeModal(true);
     } catch (error) {
       toast.error('Failed to calculate fee');
@@ -111,8 +134,9 @@ export default function FeesManagement() {
       const payload = {
         receipt: offlineReceipt,
       };
-      if (selectedFeeMonths.length > 0) {
-        payload.selected_months = selectedFeeMonths;
+      const allSelectedMonths = [...selectedFeeMonths, ...selectedFutureMonths];
+      if (allSelectedMonths.length > 0) {
+        payload.selected_months = allSelectedMonths;
       }
       const res = await api.post(`/admin/students/${selectedStudent.id}/mark-paid`, payload);
       const adminMeta = res.data?.admin_marked_by;
@@ -120,6 +144,8 @@ export default function FeesManagement() {
       toast.success(res.data?.message ? `${res.data.message}${by ? ` by ${by}` : ''}` : 'Offline payment recorded');
       setShowFeeModal(false);
       setSelectedStudent(null);
+      setSelectedFutureMonths([]);
+      setInitialPendingFee(null);
       fetchStudents();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to record offline payment');
@@ -194,7 +220,8 @@ export default function FeesManagement() {
 
     setSelectedFeeMonths(nextMonths);
     try {
-      await fetchFeeDetails(selectedStudent, nextMonths);
+      const allMonths = [...nextMonths, ...selectedFutureMonths];
+      await fetchFeeDetails(selectedStudent, allMonths, allMonths.length > 0);
     } catch (error) {
       setSelectedFeeMonths(selectedFeeMonths);
       toast.error('Failed to update fee for selected months');
@@ -205,9 +232,25 @@ export default function FeesManagement() {
     if (!selectedStudent || isPaidSummary) return;
     setSelectedFeeMonths([]);
     try {
-      await fetchFeeDetails(selectedStudent, []);
+      const allMonths = [...selectedFutureMonths];
+      await fetchFeeDetails(selectedStudent, allMonths, allMonths.length > 0);
     } catch (error) {
       toast.error('Failed to reset month selection');
+    }
+  };
+
+  const toggleFutureMonth = async (monthValue) => {
+    if (!selectedStudent) return;
+    const nextFutureMonths = selectedFutureMonths.includes(monthValue)
+      ? selectedFutureMonths.filter((m) => m !== monthValue)
+      : [...selectedFutureMonths, monthValue];
+    setSelectedFutureMonths(nextFutureMonths);
+    try {
+      const allMonths = [...selectedFeeMonths, ...nextFutureMonths];
+      await fetchFeeDetails(selectedStudent, allMonths, allMonths.length > 0);
+    } catch (error) {
+      setSelectedFutureMonths(selectedFutureMonths);
+      toast.error('Failed to update fee for selected months');
     }
   };
 
@@ -534,6 +577,8 @@ export default function FeesManagement() {
                   setShowFeeModal(false);
                   setSelectedStudent(null);
                   setSelectedFeeMonths([]);
+                  setSelectedFutureMonths([]);
+                  setInitialPendingFee(null);
                 }}
                 className="ml-auto shrink-0 rounded-lg bg-gray-200 px-3 py-2 text-sm font-outfit font-semibold text-gray-900 hover:bg-gray-300 sm:px-4"
               >
@@ -542,56 +587,115 @@ export default function FeesManagement() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-              {!isPaidSummary && Array.isArray(feeDetails?.breakup?.meta?.due_months) && feeDetails.breakup.meta.due_months.length > 0 && (
-                <div className="mb-4 rounded-xl border border-sunny-border bg-sunny-cream/30 p-3 sm:p-4">
-                  {feeDetails?.breakup?.meta?.bus_fee_start_month && (
-                    <div className="mb-3 rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs font-outfit text-sky-900 sm:text-sm">
-                      Bus fee starts from {formatMonthLabel(feeDetails.breakup.meta.bus_fee_start_month)}
-                      {feeDetails?.breakup?.meta?.bus_fee_effective_from
-                        ? ` (next pending bus month: ${formatMonthLabel(feeDetails.breakup.meta.bus_fee_effective_from)})`
-                        : ''}
+              {(() => {
+                const pendingDueMonths = (feeDetails?.breakup?.meta?.due_months || []).filter(m => m <= currentMonthKey);
+                return !isPaidSummary && pendingDueMonths.length > 0 ? (
+                  <div className="mb-4 rounded-xl border border-sunny-border bg-sunny-cream/30 p-3 sm:p-4">
+                    {feeDetails?.breakup?.meta?.bus_fee_start_month && (
+                      <div className="mb-3 rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs font-outfit text-sky-900 sm:text-sm">
+                        Bus fee starts from {formatMonthLabel(feeDetails.breakup.meta.bus_fee_start_month)}
+                        {feeDetails?.breakup?.meta?.bus_fee_effective_from
+                          ? ` (next pending bus month: ${formatMonthLabel(feeDetails.breakup.meta.bus_fee_effective_from)})`
+                          : ''}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                      <div>
+                        <h3 className="font-fredoka text-base font-semibold text-sunny-navy sm:text-lg">Select pending months</h3>
+                        <p className="text-[11px] font-outfit text-gray-600 sm:text-xs">
+                          Leave all months unselected to show the full pending fee.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={resetPendingMonths}
+                        className="text-xs font-outfit font-semibold text-sunny-blue hover:text-sunny-navy sm:text-sm"
+                      >
+                        Show full pending fee
+                      </button>
                     </div>
-                  )}
-                  <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-                    <div>
-                      <h3 className="font-fredoka text-base font-semibold text-sunny-navy sm:text-lg">Select pending months</h3>
-                      <p className="text-[11px] font-outfit text-gray-600 sm:text-xs">
-                        Leave all months unselected to show the full pending fee.
-                      </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {pendingDueMonths.map((monthValue) => {
+                        const isSelected = selectedFeeMonths.includes(monthValue);
+                        return (
+                          <button
+                            key={monthValue}
+                            type="button"
+                            onClick={() => togglePendingMonth(monthValue)}
+                            className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-outfit transition sm:px-3 sm:py-1.5 sm:text-sm ${isSelected ? 'border-sunny-navy bg-sunny-navy text-white shadow-sm' : 'border-gray-200 bg-white text-gray-700 hover:border-sunny-blue hover:text-sunny-navy'}`}
+                          >
+                            <span>{formatMonthLabel(monthValue)}</span>
+                            {isSelected && <Check size={14} />}
+                          </button>
+                        );
+                      })}
                     </div>
-                    <button
-                      type="button"
-                      onClick={resetPendingMonths}
-                      className="text-xs font-outfit font-semibold text-sunny-blue hover:text-sunny-navy sm:text-sm"
-                    >
-                      Show full pending fee
-                    </button>
+                    {selectedFeeMonths.length > 0 && (
+                      <div className="mt-3 text-[11px] font-outfit text-gray-600 sm:text-xs">
+                        Selected months: {selectedFeeMonths.map((monthValue) => formatMonthLabel(monthValue)).join(', ')}
+                      </div>
+                    )}
                   </div>
+                ) : null;
+              })()}
 
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {feeDetails.breakup.meta.due_months.map((monthValue) => {
-                      const isSelected = selectedFeeMonths.includes(monthValue);
-                      return (
+              {canRecordOfflinePayment && (() => {
+                const canPayAdvance = initialPendingFee === 0;
+                return (
+                  <div className={`mb-4 rounded-xl border p-3 sm:p-4 ${canPayAdvance ? 'border-blue-200 bg-blue-50/40' : 'border-gray-200 bg-gray-50/60'}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                      <div>
+                        <h3 className="font-fredoka text-base font-semibold text-sunny-navy sm:text-lg">Advance Payment</h3>
+                        <p className="text-[11px] font-outfit text-gray-600 sm:text-xs">
+                          Collect fees in advance for upcoming months (cash only).
+                        </p>
+                      </div>
+                      {canPayAdvance && selectedFutureMonths.length > 0 && (
                         <button
-                          key={monthValue}
                           type="button"
-                          onClick={() => togglePendingMonth(monthValue)}
-                          className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-outfit transition sm:px-3 sm:py-1.5 sm:text-sm ${isSelected ? 'border-sunny-navy bg-sunny-navy text-white shadow-sm' : 'border-gray-200 bg-white text-gray-700 hover:border-sunny-blue hover:text-sunny-navy'}`}
+                          onClick={() => {
+                            setSelectedFutureMonths([]);
+                            const allMonths = [...selectedFeeMonths];
+                            fetchFeeDetails(selectedStudent, allMonths, allMonths.length > 0);
+                          }}
+                          className="text-xs font-outfit font-semibold text-blue-600 hover:text-blue-800 sm:text-sm"
                         >
-                          <span>{formatMonthLabel(monthValue)}</span>
-                          {isSelected && <Check size={14} />}
+                          Clear
                         </button>
-                      );
-                    })}
-                  </div>
-
-                  {selectedFeeMonths.length > 0 && (
-                    <div className="mt-3 text-[11px] font-outfit text-gray-600 sm:text-xs">
-                      Selected months: {selectedFeeMonths.map((monthValue) => formatMonthLabel(monthValue)).join(', ')}
+                      )}
                     </div>
-                  )}
-                </div>
-              )}
+                    {!canPayAdvance ? (
+                      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-outfit text-amber-800">
+                        Advance payment is only available once all pending dues are cleared. Please record payment for all pending months first.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {nextSixMonths.map((monthValue) => {
+                            const isSelected = selectedFutureMonths.includes(monthValue);
+                            return (
+                              <button
+                                key={monthValue}
+                                type="button"
+                                onClick={() => toggleFutureMonth(monthValue)}
+                                className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-outfit transition sm:px-3 sm:py-1.5 sm:text-sm ${isSelected ? 'border-blue-700 bg-blue-700 text-white shadow-sm' : 'border-blue-200 bg-white text-blue-700 hover:border-blue-500 hover:text-blue-900'}`}
+                              >
+                                <span>{formatMonthLabel(monthValue)}</span>
+                                {isSelected && <Check size={14} />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {selectedFutureMonths.length > 0 && (
+                          <div className="mt-3 text-[11px] font-outfit text-blue-700 sm:text-xs">
+                            Advance months: {selectedFutureMonths.map((m) => formatMonthLabel(m)).join(', ')}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="space-y-2.5 text-sm sm:space-y-3">
                 <div className="flex items-center justify-between font-outfit text-gray-700">
@@ -652,7 +756,7 @@ export default function FeesManagement() {
                   </div>
                 </div>
 
-                {Number(feeDetails.total_fee) > 0 && (
+                {(Number(feeDetails.total_fee) > 0 || selectedFutureMonths.length > 0) && (
                   <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-3 sm:p-4">
                     <h3 className="font-fredoka text-base font-semibold text-sunny-navy sm:text-lg">Mark as Cash Payment</h3>
                     <div className="grid grid-cols-2 gap-3">
@@ -665,8 +769,8 @@ export default function FeesManagement() {
                         <Input value={offlineNote} onChange={(e) => setOfflineNote(e.target.value)} placeholder="Cash receipt details" />
                       </div>
                       <div className="col-span-2 rounded-lg bg-white px-3 py-2 text-[11px] font-outfit text-gray-600 sm:text-xs">
-                        {selectedFeeMonths.length > 0
-                          ? `Payment will be recorded for ${selectedFeeMonths.map((monthValue) => formatMonthLabel(monthValue)).join(', ')}.`
+                        {[...selectedFeeMonths, ...selectedFutureMonths].length > 0
+                          ? `Payment will be recorded for ${[...selectedFeeMonths, ...selectedFutureMonths].map((monthValue) => formatMonthLabel(monthValue)).join(', ')}.`
                           : 'Payment will be recorded against the full pending fee.'}
                       </div>
                     </div>
