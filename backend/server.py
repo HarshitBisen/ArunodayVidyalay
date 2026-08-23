@@ -94,7 +94,7 @@ class StudentCreate(BaseModel):
     bus_number: Optional[str] = None
     distance_school: Optional[float] = Field(default=None, ge=0)
     bus_fee_start_month: Optional[str] = None  # YYYY-MM
-    admission_month: str  # YYYY-MM
+    admission_month: Optional[str] = None  # YYYY-MM
     academic_year: str
 
     @model_validator(mode="after")
@@ -108,8 +108,8 @@ class StudentCreate(BaseModel):
                 raise ValueError("pickup_location is required when bus_opted is yes")
             if not bus_number:
                 raise ValueError("bus_number is required when bus_opted is yes")
-            if bus_number not in {"1", "2", "3", "4", "5"}:
-                raise ValueError("bus_number must be one of 1, 2, 3, 4, 5")
+            if bus_number not in {"1", "2", "3", "4", "5", "6", "7"}:
+                raise ValueError("bus_number must be one of 1, 2, 3, 4, 5, 6, 7")
             if self.distance_school is None:
                 raise ValueError("distance_school is required when bus_opted is yes")
             if not bus_fee_start_month:
@@ -124,11 +124,10 @@ class StudentCreate(BaseModel):
             if not is_in_current_academic_year(normalized_bus_month):
                 raise ValueError("bus_fee_start_month must be in current academic year (April to March)")
 
-        normalized_admission_month = normalize_month_key(self.admission_month)
-        if not normalized_admission_month:
-            raise ValueError("admission_month must be in YYYY-MM format")
-        if not is_in_current_academic_year_to_current_month(normalized_admission_month):
-            raise ValueError("admission_month must be between current academic year April and current month")
+        normalized_admission_month = normalize_month_key(self.admission_month) if self.admission_month else None
+        if normalized_admission_month:
+            if not is_in_current_academic_year_to_current_month(normalized_admission_month):
+                raise ValueError("admission_month must be between current academic year April and current month")
         return self
 
 class StudentUpdate(BaseModel):
@@ -1776,10 +1775,13 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
 
         # If a payment contains tuition for multiple months in one transaction,
         # map those months to the oldest unpaid due months up to the latest covered month.
+        # Guard: only apply when the payment's month is within the current fee timeline;
+        # payments from a different academic year (past or future) must not allocate
+        # months in the current timeline via this heuristic.
         if not has_explicit_months:
             tuition_paid = float(breakup_sum.get("tuition_fee", 0) or 0)
             latest_payment_month = payment_months[-1]
-            if tuition > 0 and tuition_paid > 0:
+            if tuition > 0 and tuition_paid > 0 and base_due_month <= latest_payment_month <= upper_bound:
                 tuition_months_paid = max(1, int(round(tuition_paid / float(tuition))))
                 allocatable_months = [
                     month
