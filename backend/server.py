@@ -1929,7 +1929,9 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
     total += late_fee
 
     try:
-        if int(class_name) >= 6:
+        class_num = int(class_name)
+        is_existing_class_7 = str(student.get("new_student") or "").strip().lower() == "no" and class_num == 7
+        if class_num >= 6 and not is_existing_class_7:
             caution = 1000
             total += caution
     except Exception:
