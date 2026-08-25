@@ -238,6 +238,7 @@ class FeePayment(BaseModel):
     selected_months: Optional[List[str]] = None
     breakup: Optional[dict] = None
     paid_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    active: bool = True
 
 class FeePaymentCreate(BaseModel):
     amount: float
@@ -278,6 +279,12 @@ ENROLLMENT_PREFIX = "AV"
 ENROLLMENT_COUNTER_ID = "student_enrollment"
 
 def active_student_query(extra: Optional[dict] = None) -> dict:
+    query = {"active": {"$ne": False}}
+    if extra:
+        query.update(extra)
+    return query
+
+def active_payment_query(extra: Optional[dict] = None) -> dict:
     query = {"active": {"$ne": False}}
     if extra:
         query.update(extra)
@@ -588,7 +595,7 @@ async def update_admin_permissions(
 async def get_all_students(unpaid_fees: bool = False, class_name: Optional[str] = None, current_user: dict = Depends(get_admin_user)):
     current_month = month_key(datetime.now(timezone.utc))
     payments = await db.payments.find(
-        payment_month_match_query(current_month),
+        active_payment_query(payment_month_match_query(current_month)),
         {"_id": 0, "student_id": 1},
     ).to_list(5000)
     paid_student_ids = {p.get("student_id") for p in payments if p.get("student_id")}
@@ -636,7 +643,7 @@ async def get_admin_overview(current_user: dict = Depends(get_admin_user)):
 
     total_students = await db.students.count_documents(active_student_query())
 
-    paid_ids = await db.payments.distinct("student_id", payment_month_match_query(current_month))
+    paid_ids = await db.payments.distinct("student_id", active_payment_query(payment_month_match_query(current_month)))
     paid_ids = [student_id for student_id in paid_ids if student_id]
     paid_students = 0
     if paid_ids:
@@ -645,6 +652,7 @@ async def get_admin_overview(current_user: dict = Depends(get_admin_user)):
     pending_students = max(total_students - paid_students, 0)
 
     recent_pipeline = [
+        {"$match": active_payment_query()},
         {
             "$addFields": {
                 "sort_paid_at": {
@@ -832,6 +840,12 @@ async def deactivate_student(student_id: str, current_user: dict = Depends(get_a
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Student not found")
+
+    # Deactivate related payments so they no longer surface on fee pages/reports.
+    await db.payments.update_many(
+        {"student_id": student_id},
+        {"$set": {"active": False}},
+    )
     return {"message": "Student deactivated successfully"}
 
 @api_router.post("/admin/students/{student_id}/reset-password")
@@ -877,7 +891,7 @@ async def get_student_bus_paid_months(student_id: str, current_user: dict = Depe
 
     valid_current_ay_months = set(month_keys_in_current_academic_year())
     payments = await db.payments.find(
-        {"student_id": student_id},
+        active_payment_query({"student_id": student_id}),
         {"_id": 0, "status": 1, "paid_for_month": 1, "selected_months": 1, "paid_at": 1, "breakup": 1},
     ).to_list(1000)
 
@@ -1044,7 +1058,7 @@ async def get_all_payments(class_name: Optional[str] = None, month: Optional[str
     else:
         final_query = {"$and": query_parts}
 
-    payments = await db.payments.find(final_query, {"_id": 0}).to_list(1000)
+    payments = await db.payments.find(active_payment_query(final_query), {"_id": 0}).to_list(1000)
     for payment in payments:
         payment['paid_at'] = payment['paid_at'].isoformat() if isinstance(payment['paid_at'], datetime) else payment['paid_at']
     return payments
@@ -1327,7 +1341,7 @@ async def get_student_payments(current_user: dict = Depends(get_current_user)):
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
-    payments = await db.payments.find({"student_id": current_user['user_id']}, {"_id": 0}).to_list(100)
+    payments = await db.payments.find(active_payment_query({"student_id": current_user['user_id']}), {"_id": 0}).to_list(100)
     for payment in payments:
         payment['paid_at'] = payment['paid_at'].isoformat() if isinstance(payment['paid_at'], datetime) else payment['paid_at']
     return payments
@@ -1573,7 +1587,7 @@ async def build_paid_fee_summary(student: dict, student_id: str) -> dict:
         base_due_month = join_month
 
     payments = await db.payments.find(
-        {"student_id": student_id},
+        active_payment_query({"student_id": student_id}),
         {"_id": 0, "paid_for_month": 1, "selected_months": 1, "paid_at": 1, "status": 1, "amount": 1, "breakup": 1},
     ).to_list(1000)
 
@@ -1691,7 +1705,7 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
         created_at = datetime.now(timezone.utc)
 
     payments = await db.payments.find(
-        {"student_id": student_id},
+        active_payment_query({"student_id": student_id}),
         {"_id": 0, "paid_for_month": 1, "selected_months": 1, "paid_at": 1, "status": 1, "breakup": 1},
     ).to_list(1000)
 
@@ -1891,14 +1905,15 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
 
         bus_fee_effective_from = configured_bus_start
         while bus_fee_effective_from <= upper_bound:
-            if bus_fee_effective_from in bus_paid_months:
+            if bus_fee_effective_from in bus_paid_months or bus_fee_effective_from.month == 6:
                 bus_fee_effective_from = add_months(bus_fee_effective_from, 1)
                 continue
             break
 
         cursor_month = max(base_due_month, configured_bus_start)
         while cursor_month <= upper_bound:
-            if cursor_month not in bus_paid_months:
+            # Bus fee is waived for June (summer break); it is never due for that month.
+            if cursor_month not in bus_paid_months and cursor_month.month != 6:
                 bus_due_month_list.append(cursor_month)
             cursor_month = add_months(cursor_month, 1)
 
@@ -1932,8 +1947,14 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
         class_num = int(class_name)
         is_existing_class_7 = str(student.get("new_student") or "").strip().lower() == "no" and class_num == 7
         if class_num >= 6 and not is_existing_class_7:
-            caution = 1000
-            total += caution
+            caution_paid = any(
+                float(payment_breakup_sum(payment).get("caution_money", 0) or 0) > 0
+                for payment in payments
+                if str(payment.get("status") or "success").lower() == "success"
+            )
+            if not caution_paid:
+                caution = 1000
+                total += caution
     except Exception:
         pass
 
@@ -2022,7 +2043,7 @@ async def calculate_fee(student: dict):
     # -------- Check existing payment (current month) --------
     current_month = month_key(datetime.now(timezone.utc))
     payment = await db.payments.find_one(
-        {"student_id": student_id, **payment_month_match_query(current_month)},
+        active_payment_query({"student_id": student_id, **payment_month_match_query(current_month)}),
         {"_id": 0},
     )
 
