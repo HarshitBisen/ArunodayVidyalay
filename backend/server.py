@@ -147,6 +147,9 @@ class StudentUpdate(BaseModel):
     admission_month: Optional[str] = None
     academic_year: Optional[str] = None
 
+class BusServiceOverridesRequest(BaseModel):
+    overrides: dict[str, Optional[bool]] = Field(default_factory=dict)
+
 class StudentResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
@@ -912,6 +915,67 @@ async def get_student_bus_paid_months(student_id: str, current_user: dict = Depe
                 paid_months.add(month_value)
 
     return {"months": sorted(list(paid_months))}
+
+def bus_service_months_available_for_update() -> List[str]:
+    current_month = month_start(datetime.now(timezone.utc))
+    return [
+        value
+        for value in month_keys_in_current_academic_year()
+        if int(value.split("-")[1]) >= 11 and month_key_to_datetime(value) >= current_month
+    ]
+
+@api_router.get("/admin/students/{student_id}/bus-service-months", response_model=dict)
+async def get_student_bus_service_months(student_id: str, current_user: dict = Depends(get_admin_user)):
+    student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    stored_overrides = student.get("bus_service_month_overrides")
+    overrides = stored_overrides if isinstance(stored_overrides, dict) else {}
+    return {
+        "months": bus_service_months_available_for_update(),
+        "overrides": {
+            key: value
+            for key, value in overrides.items()
+            if normalize_month_key(key) and isinstance(value, bool)
+        },
+    }
+
+@api_router.put("/admin/students/{student_id}/bus-service-months", response_model=dict)
+async def update_student_bus_service_months(
+    student_id: str,
+    request: BusServiceOverridesRequest,
+    current_user: dict = Depends(get_admin_user),
+):
+    student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    if str(student.get("bus_opted") or "").strip().lower() != "yes":
+        raise HTTPException(status_code=400, detail="Bus service must be opted in before setting monthly options")
+
+    editable_months = set(bus_service_months_available_for_update())
+    set_fields = {}
+    unset_fields = {}
+    for raw_month, opted in request.overrides.items():
+        normalized_month = normalize_month_key(raw_month)
+        if not normalized_month or normalized_month not in editable_months:
+            raise HTTPException(status_code=400, detail="Only November onward current or future months can be changed")
+        field_path = f"bus_service_month_overrides.{normalized_month}"
+        if opted is None:
+            unset_fields[field_path] = ""
+        else:
+            set_fields[field_path] = opted
+
+    update_fields = {"updated_at": datetime.now(timezone.utc).isoformat(), **set_fields}
+    update_operation = {"$set": update_fields}
+    if unset_fields:
+        update_operation["$unset"] = unset_fields
+    await db.students.update_one(active_student_query({"id": student_id}), update_operation)
+    updated_student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
+    stored_overrides = updated_student.get("bus_service_month_overrides") if updated_student else {}
+    return {
+        "months": bus_service_months_available_for_update(),
+        "overrides": stored_overrides if isinstance(stored_overrides, dict) else {},
+    }
 
 @api_router.put("/admin/students/{student_id}/concession", response_model=ConcessionStatusResponse)
 async def upsert_student_concession(
@@ -1903,17 +1967,30 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
                 if base_due_month <= payment_month <= upper_bound:
                     bus_paid_months.add(payment_month)
 
-        bus_fee_effective_from = configured_bus_start
+        stored_bus_overrides = student.get("bus_service_month_overrides")
+        bus_overrides = stored_bus_overrides if isinstance(stored_bus_overrides, dict) else {}
+
+        def bus_service_enabled(month: datetime) -> bool:
+            key = month_key(month)
+            if month.month >= 11 and key in bus_overrides and isinstance(bus_overrides[key], bool):
+                return bus_overrides[key]
+            return month >= configured_bus_start
+
+        bus_fee_effective_from = base_due_month
         while bus_fee_effective_from <= upper_bound:
-            if bus_fee_effective_from in bus_paid_months or bus_fee_effective_from.month == 6:
+            if (
+                not bus_service_enabled(bus_fee_effective_from)
+                or bus_fee_effective_from in bus_paid_months
+                or bus_fee_effective_from.month == 6
+            ):
                 bus_fee_effective_from = add_months(bus_fee_effective_from, 1)
                 continue
             break
 
-        cursor_month = max(base_due_month, configured_bus_start)
+        cursor_month = base_due_month
         while cursor_month <= upper_bound:
             # Bus fee is waived for June (summer break); it is never due for that month.
-            if cursor_month not in bus_paid_months and cursor_month.month != 6:
+            if bus_service_enabled(cursor_month) and cursor_month not in bus_paid_months and cursor_month.month != 6:
                 bus_due_month_list.append(cursor_month)
             cursor_month = add_months(cursor_month, 1)
 
