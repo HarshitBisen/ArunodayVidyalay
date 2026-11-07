@@ -66,6 +66,12 @@ const getCurrentAcademicYearMonthOptions = () => {
 	return options;
 };
 
+const getBusServiceMonthOptions = () => {
+	const now = new Date();
+	const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+	return getCurrentAcademicYearMonthOptions().filter(({ value }) => Number(value.slice(5, 7)) >= 11 && value >= currentMonth);
+};
+
 const getAdmissionMonthBounds = () => {
 	const currentAcademicYear = getCurrentAcademicYear();
 	const startYear = Number.parseInt(currentAcademicYear.split('-')[0], 10);
@@ -110,6 +116,7 @@ export default function StudentsManagement() {
   const academicYearOptions = getAcademicYearOptions(3);
 	const busFeeMonthBounds = getCurrentAcademicYearMonthBounds();
 	const busFeeMonthOptions = getCurrentAcademicYearMonthOptions();
+	const busServiceMonthOptions = getBusServiceMonthOptions();
 	const admissionMonthBounds = getAdmissionMonthBounds();
 	const admissionMonthOptions = getAdmissionMonthOptions();
 	const busNumberOptions = ['1', '2', '3', '4', '5', '6', '7'];
@@ -128,6 +135,7 @@ export default function StudentsManagement() {
   const [showStudentPassword, setShowStudentPassword] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
 	const [busPaidMonths, setBusPaidMonths] = useState([]);
+	const [monthlyBusOverrides, setMonthlyBusOverrides] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [formData, setFormData] = useState({
     roll_number: '',
@@ -278,6 +286,15 @@ export default function StudentsManagement() {
 		}
     try {
 			await api.put(`/admin/students/${selectedStudent.id}`, payload);
+			if (payload.bus_opted === 'yes' && busServiceMonthOptions.length > 0) {
+				const overrides = Object.fromEntries(busServiceMonthOptions.map(({ value }) => [
+					value,
+					Object.prototype.hasOwnProperty.call(monthlyBusOverrides, value)
+						? monthlyBusOverrides[value]
+						: null,
+				]));
+				await api.put(`/admin/students/${selectedStudent.id}/bus-service-months`, { overrides });
+			}
       toast.success('Student updated successfully');
       setShowEditModal(false);
       resetForm();
@@ -335,8 +352,12 @@ export default function StudentsManagement() {
     setFormData(initialFormData);
 
     try {
-			const res = await api.get(`/admin/students/${student.id}/bus-paid-months`);
-			const paidMonths = Array.isArray(res.data?.months) ? res.data.months : [];
+			const [paidRes, serviceRes] = await Promise.all([
+				api.get(`/admin/students/${student.id}/bus-paid-months`),
+				api.get(`/admin/students/${student.id}/bus-service-months`),
+			]);
+			const paidMonths = Array.isArray(paidRes.data?.months) ? paidRes.data.months : [];
+			setMonthlyBusOverrides(serviceRes.data?.overrides && typeof serviceRes.data.overrides === 'object' ? serviceRes.data.overrides : {});
 			setBusPaidMonths(paidMonths);
 			if (initialFormData.bus_opted === 'yes' && initialFormData.bus_fee_start_month && paidMonths.includes(initialFormData.bus_fee_start_month)) {
 				const firstAvailable = busFeeMonthOptions.find((monthOption) => !paidMonths.includes(monthOption.value));
@@ -347,6 +368,7 @@ export default function StudentsManagement() {
 			}
 		} catch (error) {
 			setBusPaidMonths([]);
+			setMonthlyBusOverrides({});
 		}
 
     setShowEditModal(true);
@@ -382,6 +404,7 @@ export default function StudentsManagement() {
     });
     setSelectedStudent(null);
 		setBusPaidMonths([]);
+		setMonthlyBusOverrides({});
   };
 
   const openAddModal = () => {
@@ -1219,6 +1242,45 @@ export default function StudentsManagement() {
 		                    </select>
 		                  </div>
 		                </div>
+		                {formData.bus_opted === 'yes' && (
+		                  <div className="mt-4 rounded-xl border border-sunny-border bg-sunny-cream/40 p-3">
+		                    <h4 className="font-outfit font-semibold text-sunny-navy text-sm">Monthly Bus Service (November onward)</h4>
+		                    <p className="mt-1 mb-3 font-outfit text-xs text-gray-600">
+		                      Past months are locked. Choose whether bus service applies for the current or a future month; Default follows the bus fee start month.
+		                    </p>
+		                    {busServiceMonthOptions.length === 0 ? (
+		                      <p className="font-outfit text-sm text-gray-500">There are no editable November–March months remaining in this academic year.</p>
+		                    ) : (
+		                      <div className="grid gap-3 sm:grid-cols-2">
+		                        {busServiceMonthOptions.map((monthOption) => {
+		                          const override = monthlyBusOverrides[monthOption.value];
+		                          const selectedValue = override === true ? 'yes' : override === false ? 'no' : 'default';
+		                          return (
+		                            <label key={monthOption.value} className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 font-outfit text-sm text-gray-700">
+		                              <span>{monthOption.label}</span>
+		                              <select
+		                                className="rounded-md border border-sunny-border bg-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sunny-blue/40"
+		                                value={selectedValue}
+		                                onChange={(event) => {
+		                                  const value = event.target.value;
+		                                  setMonthlyBusOverrides((previous) => ({
+		                                    ...previous,
+		                                    [monthOption.value]: value === 'default' ? null : value === 'yes',
+		                                  }));
+		                                }}
+		                                aria-label={`Bus service for ${monthOption.label}`}
+		                              >
+		                                <option value="default">Default</option>
+		                                <option value="yes">Opt in</option>
+		                                <option value="no">Opt out</option>
+		                              </select>
+		                            </label>
+		                          );
+		                        })}
+		                      </div>
+		                    )}
+		                  </div>
+		                )}
 		              </div>
 	            </div>
 	          </div>
