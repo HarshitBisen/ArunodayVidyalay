@@ -1742,17 +1742,10 @@ def calculate_late_fee(unpaid_due_months: List[datetime], now: datetime) -> floa
         if due_month_start.month in exempt_months or due_month_start > current_month:
             continue
 
-        if due_month_start == current_month:
-            if now.day >= 16:
-                late_fee += 50.0
-            continue
-
-        months_unpaid_after_due = (
-            (current_month.year - due_month_start.year) * 12
-            + current_month.month
-            - due_month_start.month
-        )
-        late_fee += 50.0 + (100.0 * months_unpaid_after_due)
+        if due_month_start < current_month:
+            late_fee += 100.0
+        elif now.day >= 16:
+            late_fee += 50.0
 
     return round(late_fee, 2)
 
