@@ -1739,16 +1739,12 @@ def calculate_late_fee(unpaid_due_months: List[datetime], now: datetime) -> floa
 
     for due_month in unpaid_due_months:
         due_month_start = month_start(due_month)
-        if due_month_start.month in exempt_months:
+        if due_month_start.month in exempt_months or due_month_start > current_month:
             continue
 
-        # Any unpaid non-exempt month before current month is already late.
         if due_month_start < current_month:
             late_fee += 100.0
-            continue
-
-        # Current month late fee applies only after the 10th.
-        if due_month_start == current_month and now.day > 10:
+        elif now.day >= 16:
             late_fee += 50.0
 
     return round(late_fee, 2)
@@ -2016,7 +2012,7 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
 
     total += bus_fee_total
 
-    # Late fee applies only to non-exempt due months; current month applies after 10th.
+    # Late fee applies only to non-exempt due months; current month starts on the 16th.
     late_fee = calculate_late_fee(selected_due_month_list, now) if len(selected_due_month_list) > 0 else 0.0
     total += late_fee
 
