@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Response, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Response, Request, Query
 from fastapi.security import HTTPBearer
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,13 +8,15 @@ import logging
 import re
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr, model_validator
-from typing import List, Optional
+from typing import List, Optional, Literal
+from io import BytesIO
 import uuid
 from datetime import datetime, timezone, timedelta
 import bcrypt
 import jwt
 from pymongo import ReturnDocument
 import razorpay
+from openpyxl import Workbook
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -638,6 +640,45 @@ async def get_all_students(unpaid_fees: bool = False, class_name: Optional[str] 
             student["fee_amount"] = float(student.get("fee_amount") or 0)
             student["fee_status"] = "pending" if student["fee_amount"] > 0 else "paid"
     return students
+
+
+@api_router.get("/admin/reports/fees")
+async def download_fee_report(
+    status: Literal["paid", "pending"] = Query(...),
+    class_name: Optional[List[str]] = Query(None),
+    current_user: dict = Depends(get_admin_user),
+):
+    classes = list(dict.fromkeys(name.strip() for name in (class_name or []) if name.strip()))
+    if not classes:
+        raise HTTPException(status_code=400, detail="Select at least one class")
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Fee report"
+    sheet.append(["Enrollment number", "Name", "Class", "Fee paid" if status == "paid" else "Fee pending"])
+
+    students = db.students.find(active_student_query({"class_name": {"$in": classes}}), {"_id": 0})
+    async for student in students:
+        fee = await build_fee_breakup(student, student["id"])
+        pending = float(fee["total_fee"])
+        if (pending > 0) != (status == "pending"):
+            continue
+        amount = pending
+        if status == "paid":
+            summary = await build_paid_fee_summary(student, student["id"])
+            amount = float(summary["total_paid"])
+        sheet.append([str(student.get("enrollment_number") or ""), str(student.get("name") or ""),
+                      str(student.get("class_name") or ""), amount])
+        for cell in sheet[sheet.max_row][:3]:
+            cell.data_type = "s"
+
+    output = BytesIO()
+    workbook.save(output)
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="fee-{status}-report.xlsx"'},
+    )
 
 
 @api_router.get("/admin/overview", response_model=dict)
