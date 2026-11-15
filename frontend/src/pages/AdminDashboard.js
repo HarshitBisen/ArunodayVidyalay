@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Users, LogOut, GraduationCap, CreditCard, Home, Shield } from 'lucide-react';
+import { Users, LogOut, GraduationCap, CreditCard, Home, Shield, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'sonner';
 import { getUser, logout } from '@/utils/auth';
 import api from '@/utils/api';
@@ -9,6 +9,7 @@ import PaymentsView from '@/components/admin/PaymentsView';
 import AdminOverview from '@/components/admin/AdminOverview';
 import FeesManagement from '@/components/admin/FeesManagement';
 import AdminsView from '@/components/admin/AdminsView';
+import ReportsView from '@/components/admin/ReportsView';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -84,6 +85,14 @@ export default function AdminDashboard() {
               <span className="font-outfit">Fees</span>
             </Link>
             <Link
+              to="/admin/reports"
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-10 transition-colors"
+              data-testid="admin-nav-reports"
+            >
+              <FileSpreadsheet size={20} />
+              <span className="font-outfit">Reports</span>
+            </Link>
+            <Link
               to="/admin/admins"
               className="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-white hover:bg-opacity-10 transition-colors"
               data-testid="admin-nav-admins"
@@ -111,6 +120,7 @@ export default function AdminDashboard() {
           <Route path="students" element={<StudentsManagement />} />
           <Route path="payments" element={<PaymentsView />} />
           <Route path="fees" element={<FeesManagement />} />
+          <Route path="reports" element={<ReportsView />} />
           <Route path="admins" element={<AdminsView />} />
         </Routes>
       </div>
