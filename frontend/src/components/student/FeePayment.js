@@ -27,6 +27,8 @@ export default function FeePayment() {
   const [feeLoading, setFeeLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [receiptPaymentId, setReceiptPaymentId] = useState(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
   const paymentGatewayEnabled = true;
 
   const fetchProfile = useCallback(async () => {
@@ -35,6 +37,16 @@ export default function FeePayment() {
       const profileData = response.data;
 
       setProfile(profileData);
+
+      try {
+        const paymentsRes = await api.get('/student/payments');
+        const latestSuccessfulPayment = paymentsRes.data
+          .filter((payment) => (payment.status || 'success').toLowerCase() === 'success')
+          .sort((a, b) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime())[0];
+        setReceiptPaymentId(latestSuccessfulPayment?.id || null);
+      } catch (_error) {
+        toast.error('Unable to load your payment receipt');
+      }
 
       setFeeLoading(true);
 
@@ -61,7 +73,31 @@ export default function FeePayment() {
     fetchProfile();
   }, [fetchProfile]);
 
-  
+  const downloadReceipt = async () => {
+    if (!receiptPaymentId) {
+      toast.error('No successful payment receipt is available');
+      return;
+    }
+
+    setReceiptLoading(true);
+    try {
+      const response = await api.get(`/student/payments/${receiptPaymentId}/receipt`, {
+        responseType: 'blob',
+      });
+      const downloadUrl = window.URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `fee-receipt-${receiptPaymentId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 1000);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Unable to download your receipt');
+    } finally {
+      setReceiptLoading(false);
+    }
+  };
 
   const handlePayNow = () => {
     if (!paymentGatewayEnabled) {
@@ -120,13 +156,14 @@ export default function FeePayment() {
         },
         handler: async function (response) {
           try {
-            await api.post('/razorpay/verify', {
+            const verification = await api.post('/razorpay/verify', {
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_order_id: response.razorpay_order_id,
               razorpay_signature: response.razorpay_signature,
               amount: payableAmount,
             });
 
+            setReceiptPaymentId(verification.data.payment_id);
             toast.success('Payment successful!');
             setShowPaymentModal(false);
             fetchProfile();
@@ -315,6 +352,14 @@ export default function FeePayment() {
                 <p className="font-outfit text-green-600 text-sm">
                   Your fee has been successfully paid. Thank you!
                 </p>
+                <Button
+                  onClick={downloadReceipt}
+                  disabled={!receiptPaymentId || receiptLoading}
+                  className="mt-4 bg-sunny-navy text-white font-bold rounded-full px-6 py-2 hover:bg-opacity-90"
+                  data-testid="print-receipt-button"
+                >
+                  {receiptLoading ? 'Preparing Receipt...' : 'Print Receipt'}
+                </Button>
               </div>
             )}
           </div>
