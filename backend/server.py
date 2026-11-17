@@ -1595,7 +1595,9 @@ async def download_student_payment_receipt(payment_id: str, current_user: dict =
     student_rows = [
         [Paragraph("<b>Student Name</b>", label_style), Paragraph(safe_text(student.get("name")), normal_style)],
         [Paragraph("<b>Enrollment No.</b>", label_style), Paragraph(safe_text(student.get("enrollment_number")), normal_style)],
+        [Paragraph("<b>Father's Name</b>", label_style), Paragraph(safe_text(student.get("parent_name")), normal_style)],
         [Paragraph("<b>Roll No.</b>", label_style), Paragraph(safe_text(student.get("roll_number")), normal_style)],
+        [Paragraph("<b>Bus Number</b>", label_style), Paragraph(safe_text(student.get("bus_number") if str(student.get("bus_opted") or "").lower() == "yes" and student.get("bus_number") else "N/A"), normal_style)],
         [Paragraph("<b>Class / Section</b>", label_style), Paragraph(safe_text(f"{student.get('class_name', '-')} / {student.get('section', '-')}"), normal_style)],
         [Paragraph("<b>Academic Year</b>", label_style), Paragraph(safe_text(student.get("academic_year")), normal_style)],
         [Paragraph("<b>Receipt No.</b>", label_style), Paragraph(safe_text(payment.get("id")), normal_style)],
