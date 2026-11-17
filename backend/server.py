@@ -12,11 +12,18 @@ from typing import List, Optional, Literal
 from io import BytesIO
 import uuid
 from datetime import datetime, timezone, timedelta
+from xml.sax.saxutils import escape
 import bcrypt
 import jwt
 from pymongo import ReturnDocument
 import razorpay
 from openpyxl import Workbook
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import Image as PDFImage, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -1359,6 +1366,9 @@ async def verify_razorpay_payment(request: RazorpayPaymentVerificationRequest, c
         payment_method="Razorpay",
         transaction_id=request.razorpay_payment_id,
         paid_for_month=current_month,
+        selected_months=normalize_month_keys(
+            (fee.get("breakup") or {}).get("meta", {}).get("selected_months")
+        ),
         breakup=fee.get("breakup"),
     )
     doc = payment.model_dump()
@@ -1450,6 +1460,205 @@ async def get_student_payments(current_user: dict = Depends(get_current_user)):
     for payment in payments:
         payment['paid_at'] = payment['paid_at'].isoformat() if isinstance(payment['paid_at'], datetime) else payment['paid_at']
     return payments
+
+@api_router.get("/student/payments/{payment_id}/receipt")
+async def download_student_payment_receipt(payment_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user['user_type'] != 'student':
+        raise HTTPException(status_code=403, detail="Student access required")
+
+    student_id = current_user['user_id']
+    student = await db.students.find_one(active_student_query({"id": student_id}), {"_id": 0})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    payment = await db.payments.find_one(
+        active_payment_query({"id": payment_id, "student_id": student_id}),
+        {"_id": 0},
+    )
+    if not payment or str(payment.get("status") or "success").lower() != "success":
+        raise HTTPException(status_code=404, detail="Successful payment not found")
+
+    logo_path = ROOT_DIR.parent / "frontend" / "public" / "arunoday_logo.jpeg"
+    if not logo_path.is_file():
+        logger.error("School logo is missing: %s", logo_path)
+        raise HTTPException(status_code=500, detail="School logo is unavailable")
+
+    styles = getSampleStyleSheet()
+    school_style = ParagraphStyle(
+        "ReceiptSchool",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=19,
+        textColor=colors.HexColor("#14213d"),
+        alignment=TA_CENTER,
+        spaceAfter=3,
+    )
+    centered_style = ParagraphStyle(
+        "ReceiptCentered",
+        parent=styles["Normal"],
+        alignment=TA_CENTER,
+        fontSize=9,
+        leading=12,
+    )
+    title_style = ParagraphStyle(
+        "ReceiptTitle",
+        parent=styles["Heading2"],
+        alignment=TA_CENTER,
+        fontSize=13,
+        leading=16,
+        spaceBefore=12,
+        spaceAfter=12,
+        textColor=colors.HexColor("#14213d"),
+    )
+    normal_style = ParagraphStyle(
+        "ReceiptNormal",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=12,
+    )
+    label_style = ParagraphStyle(
+        "ReceiptLabel",
+        parent=normal_style,
+        textColor=colors.HexColor("#4b5563"),
+    )
+
+    def safe_text(value: object) -> str:
+        return escape(str(value if value is not None else "-"))
+
+    def amount_text(value: object) -> str:
+        try:
+            return f"Rs. {float(value or 0):,.2f}"
+        except (TypeError, ValueError):
+            return "Rs. 0.00"
+
+    paid_at = payment.get("paid_at")
+    try:
+        if isinstance(paid_at, datetime):
+            paid_datetime = paid_at
+        else:
+            paid_datetime = datetime.fromisoformat(str(paid_at).replace("Z", "+00:00"))
+        if paid_datetime.tzinfo is None:
+            paid_datetime = paid_datetime.replace(tzinfo=timezone.utc)
+        paid_at_text = paid_datetime.astimezone(timezone.utc).strftime("%d %b %Y, %I:%M %p UTC")
+    except (TypeError, ValueError):
+        paid_at_text = safe_text(paid_at)
+
+    breakup = payment.get("breakup") or {}
+    fee_items = breakup.get("sum") or {}
+    sub_items = breakup.get("subs") or {}
+    fee_labels = (
+        ("admission_fee", "Admission Fee"),
+        ("annual_fee", "Annual Fee"),
+        ("tuition_fee", "Tuition Fee"),
+        ("bus_fee", "Bus Fee"),
+        ("late_fee", "Late Fee"),
+        ("caution_money", "Caution Money"),
+    )
+    covered_months = (
+        normalize_month_keys(payment.get("selected_months"))
+        or normalize_month_keys((breakup.get("meta") or {}).get("selected_months"))
+    )
+    if not covered_months:
+        paid_month = normalize_month_key(payment.get("paid_for_month"))
+        if paid_month:
+            covered_months = [paid_month]
+
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=18 * mm,
+        leftMargin=18 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
+        title=f"Fee receipt - {student.get('name', 'Student')}",
+    )
+    logo = PDFImage(str(logo_path), width=27 * mm, height=29 * mm, kind="proportional")
+    school_details = [
+        Paragraph("Arunoday Vidyalay", school_style),
+        Paragraph(
+            "29/1902 Saraynamu, Shekhanpur Milkipur, Ayodhya, U.P. - 224158",
+            centered_style,
+        ),
+        Paragraph("Contact: 7518466635, 8765442626", centered_style),
+        Paragraph("arunodayvidyalay2022@gmail.com", centered_style),
+    ]
+    header = Table([[logo, school_details]], colWidths=[35 * mm, document.width - 35 * mm])
+    header.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (0, 0), "CENTER"),
+        ("LINEBELOW", (0, 0), (-1, -1), 1, colors.HexColor("#14213d")),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+
+    student_rows = [
+        [Paragraph("<b>Student Name</b>", label_style), Paragraph(safe_text(student.get("name")), normal_style)],
+        [Paragraph("<b>Enrollment No.</b>", label_style), Paragraph(safe_text(student.get("enrollment_number")), normal_style)],
+        [Paragraph("<b>Roll No.</b>", label_style), Paragraph(safe_text(student.get("roll_number")), normal_style)],
+        [Paragraph("<b>Class / Section</b>", label_style), Paragraph(safe_text(f"{student.get('class_name', '-')} / {student.get('section', '-')}"), normal_style)],
+        [Paragraph("<b>Academic Year</b>", label_style), Paragraph(safe_text(student.get("academic_year")), normal_style)],
+        [Paragraph("<b>Receipt No.</b>", label_style), Paragraph(safe_text(payment.get("id")), normal_style)],
+        [Paragraph("<b>Payment Date</b>", label_style), Paragraph(paid_at_text, normal_style)],
+        [Paragraph("<b>Transaction ID</b>", label_style), Paragraph(safe_text(payment.get("transaction_id")), normal_style)],
+        [Paragraph("<b>Payment Method</b>", label_style), Paragraph(safe_text(payment.get("payment_method") or payment.get("payment_gateway")), normal_style)],
+    ]
+    if covered_months:
+        student_rows.append([
+            Paragraph("<b>Fee Period</b>", label_style),
+            Paragraph(safe_text(", ".join(covered_months)), normal_style),
+        ])
+    student_table = Table(student_rows, colWidths=[45 * mm, document.width - 45 * mm])
+    student_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f3f4f6")),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d1d5db")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+
+    fee_rows = [["Fee Particulars", "Amount (INR)"]]
+    for key, label in fee_labels:
+        value = float(fee_items.get(key) or 0)
+        if value:
+            fee_rows.append([label, amount_text(value)])
+    for key, value in sub_items.items():
+        if value:
+            label = "Concession" if key == "concession" else str(key).replace("_", " ").title()
+            fee_rows.append([label, f"- {amount_text(value)}"])
+    fee_rows.append(["Total Paid", amount_text(payment.get("amount"))])
+    fee_table = Table(fee_rows, colWidths=[document.width * 0.68, document.width * 0.32])
+    fee_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#14213d")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#e8eef7")),
+        ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d1d5db")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+
+    document.build([
+        header,
+        Paragraph("FEE PAYMENT RECEIPT", title_style),
+        student_table,
+        Spacer(1, 12),
+        fee_table,
+        Spacer(1, 18),
+        Paragraph("This is a computer-generated receipt.", centered_style),
+    ])
+    filename_id = re.sub(r"[^A-Za-z0-9_-]", "", str(payment.get("id") or payment_id)) or "payment"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="fee-receipt-{filename_id}.pdf"'},
+    )
 
 # Public routes
 @api_router.post("/contact")
@@ -1619,6 +1828,7 @@ def payment_month_match_query(month: str) -> dict:
     ors = [
         {"paid_for_month": normalized_month},
         {"selected_months": normalized_month},
+        {"breakup.meta.selected_months": normalized_month},
         {"paid_for_month": {"$exists": False}, "paid_at": {"$regex": f"^{normalized_month}"}},
     ]
     if start and end:
@@ -1626,12 +1836,21 @@ def payment_month_match_query(month: str) -> dict:
 
     return {"$or": ors}
 
+def payment_selected_months(payment: dict) -> List[str]:
+    selected_months = normalize_month_keys(payment.get("selected_months"))
+    if selected_months:
+        return selected_months
+
+    breakup = payment.get("breakup")
+    meta = breakup.get("meta") if isinstance(breakup, dict) else None
+    return normalize_month_keys(meta.get("selected_months")) if isinstance(meta, dict) else []
+
 def months_between(a: datetime, b: datetime) -> int:
     # Number of whole month boundaries between a and b (both expected at month starts).
     return (b.year - a.year) * 12 + (b.month - a.month)
 
 def payment_covered_months(payment: dict) -> List[datetime]:
-    selected_months = normalize_month_keys(payment.get("selected_months"))
+    selected_months = payment_selected_months(payment)
     covered_months = [month_key_to_datetime(month_value) for month_value in selected_months]
     covered_months = [month for month in covered_months if month is not None]
     if covered_months:
@@ -1886,7 +2105,7 @@ async def build_fee_breakup(student: dict, student_id: str, selected_months: Opt
         # The monthly_components block below will add the explicit months to paid_months.
         # Sequential allocation is only needed for legacy / single-month online payments that record
         # multiple months of tuition in one transaction without an explicit month list.
-        has_explicit_months = bool(normalize_month_keys(payment.get("selected_months") or []))
+        has_explicit_months = bool(payment_selected_months(payment))
 
         # If a payment contains tuition for multiple months in one transaction,
         # map those months to the oldest unpaid due months up to the latest covered month.
